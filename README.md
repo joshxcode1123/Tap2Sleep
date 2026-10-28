@@ -1,0 +1,77 @@
+# PixelTapLock
+
+A production-ready, zero-dependency (pure AndroidX & Material 3) Android application for Google Pixel devices (Android 12–15+).
+
+Replicates the physical Power Button screen-off behavior by allowing users to **double-tap blank space** on the **Home Screen** or **Lock Screen** to instantly lock the display while **keeping biometric authentication (Fingerprint & Face Unlock) fully intact**.
+
+---
+
+## Key Features
+
+- **True Edge-to-Edge QHD+ Display Engine:**
+  - Queries physical hardware panel bounds via `WindowManager.maximumWindowMetrics` in real time (never cached) across dynamic resolution switches (FHD+ $\leftrightarrow$ QHD+ 1344×2992 / 1440×3120).
+  - Oversized coverage margin (+200px) completely bypassing status bar, gesture navigation insets, camera cutouts, and rounded corners.
+
+- **Power-Button Turn-Off Simulation:**
+  - When locking from the Home Screen, captures a zero-latency hardware buffer snapshot via `AccessibilityService.takeScreenshot` and presents it during the display power-down animation. The lock screen wallpaper never flashes before sleep.
+  - Instantly dismisses the overlay upon reaching `Display.STATE_OFF` or `Display.STATE_DOZE` so Always-On Display (AOD) is never obscured.
+
+- **Direct Lock-Screen-to-AOD Transition:**
+  - When double-tapping on the Lock Screen, bypasses overlay masks by default so SystemUI transitions smoothly and natively directly into Always-On Display (AOD).
+  - Includes a configurable **Lock Screen Wake Grace Delay** slider (0ms – 1500ms) to prevent single/double tap-to-wake impulses from immediately re-locking.
+
+- **Hybrid Blank-Space Detection (Android 15–17 Hardened):**
+  - **Check A (Hit-Test):** Traverses `AccessibilityNodeInfo` to verify taps land on empty workspace/lockscreen containers rather than interactive leaves (app icons, widgets, folders, notification cards, QS tiles, or shortcuts).
+  - **Check B (Event Correlation Debounce):** Solves modern Android `ACTION_OUTSIDE` `(0, 0)` coordinate masking by debouncing against interactive framework accessibility events (`TYPE_VIEW_CLICKED`, `TYPE_VIEW_SCROLLED`, `TYPE_WINDOW_STATE_CHANGED`).
+  - **Check C (Workspace & Transition Filter):** Accepts taps during gesture-navigation app-close transitions while the launcher settles, and respects on-screen keyboards (IME) so typing never triggers an accidental lock.
+
+- **Non-Blocking Touch Observer:**
+  - Employs a 1×1 pixel transparent overlay (`alpha = 0f`) with `FLAG_WATCH_OUTSIDE_TOUCH` and `FLAG_NOT_FOCUSABLE`. Never intercepts or delays normal user touches or system dialogs.
+
+- **Biometric Preservation:**
+  - Invokes `performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)`, keeping Fingerprint and Face Unlock active without requiring PIN re-entry (unlike legacy Device Admin methods).
+
+- **Transparent Home Screen Widget:**
+  - Includes a resizable invisible widget (`BlankSpaceWidgetReceiver`) as a fallback that can be placed on empty home screen grids.
+
+---
+
+## Technical Specifications
+
+- **Language:** 100% Kotlin
+- **UI:** Jetpack Compose with Material 3 (Dynamic Color / Monet theme enabled)
+- **Min SDK:** 31 (Android 12) | **Compile/Target SDK:** 35 (Android 15)
+- **Build System:** Gradle Kotlin DSL (`build.gradle.kts`) with Version Catalog (`libs.versions.toml`)
+
+---
+
+## Building from Source
+
+Prerequisites: JDK 17 or 21 and Android SDK Platform 35.
+
+```bash
+# Clone the repository
+git clone https://github.com/<YOUR_USERNAME>/PixelTapLock.git
+cd PixelTapLock
+
+# Run tests
+./gradlew testDebugUnitTest
+
+# Assemble debug APK
+./gradlew assembleDebug
+```
+
+The compiled APK will be output at:
+`app/build/outputs/apk/debug/app-debug.apk`
+
+---
+
+## Sideloading Setup (Android 13–15+)
+
+1. Install `app-debug.apk` on your Pixel phone.
+2. If Android displays **"Restricted setting"** when enabling Accessibility:
+   - Go to **Settings $\rightarrow$ Apps $\rightarrow$ PixelTapLock**.
+   - Tap the three-dot menu (**⋮**) in the top right corner.
+   - Select **"Allow restricted settings"** and confirm with your biometric/PIN.
+3. Open **PixelTapLock**, tap **"Enable Service"**, and turn the accessibility switch **ON**.
+4. Disable battery optimization when prompted so Pixel Adaptive Battery never suspends background touch observation.
