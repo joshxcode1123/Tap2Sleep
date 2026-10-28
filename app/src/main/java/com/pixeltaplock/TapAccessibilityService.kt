@@ -203,6 +203,7 @@ class TapAccessibilityService : AccessibilityService() {
         flickerController?.stopListening()
         flickerController = null
         cachedAllowedLauncherPackages = null
+        lastLauncherResolveUptimeMs = 0L
         if (instance === this) {
             instance = null
         }
@@ -513,7 +514,11 @@ class TapAccessibilityService : AccessibilityService() {
         rawY: Float,
         screenConfig: ScreenBoundsConfig
     ): Boolean {
-        val rootNode = rootInActiveWindow ?: return false
+        val rootNode = try {
+            rootInActiveWindow
+        } catch (_: Exception) {
+            null
+        } ?: return false
         return BlankSpaceHitTester.hitsInteractiveElement(
             rootNode = rootNode,
             rawX = rawX,
@@ -538,9 +543,17 @@ class TapAccessibilityService : AccessibilityService() {
         } catch (_: Exception) {
             null
         }
-        val activeRootNode = rootInActiveWindow
+        val activeRootNode = try {
+            rootInActiveWindow
+        } catch (_: Exception) {
+            null
+        }
         val activeRootPkg = activeRootNode?.packageName?.toString()
-            ?: windowsList?.firstOrNull { it.isActive || it.isFocused }?.root?.packageName?.toString()
+            ?: try {
+                windowsList?.firstOrNull { it.isActive || it.isFocused }?.root?.packageName?.toString()
+            } catch (_: Exception) {
+                null
+            }
         val allowedLaunchers = resolveAllowedLauncherPackages()
         val maxBounds = windowManager.maximumWindowMetrics.bounds
 
@@ -582,6 +595,7 @@ class TapAccessibilityService : AccessibilityService() {
         )
     }
 
+    private var lastLauncherResolveUptimeMs: Long = 0L
     private var cachedAllowedLauncherPackages: Set<String>? = null
 
     /**
@@ -590,7 +604,11 @@ class TapAccessibilityService : AccessibilityService() {
      * (com.google.android.apps.nexuslauncher).
      */
     private fun resolveAllowedLauncherPackages(): Set<String> {
-        cachedAllowedLauncherPackages?.let { return it }
+        val now = SystemClock.uptimeMillis()
+        val cached = cachedAllowedLauncherPackages
+        if (cached != null && (now - lastLauncherResolveUptimeMs) < LAUNCHER_CACHE_TTL_MS) {
+            return cached
+        }
         val packages = mutableSetOf(
             PIXEL_LAUNCHER_PACKAGE,
             AOSP_LAUNCHER_PACKAGE
@@ -616,6 +634,7 @@ class TapAccessibilityService : AccessibilityService() {
             // Fallback to known Pixel Launcher packages
         }
         cachedAllowedLauncherPackages = packages
+        lastLauncherResolveUptimeMs = now
         return packages
     }
 
@@ -790,6 +809,7 @@ class TapAccessibilityService : AccessibilityService() {
 
     companion object {
         const val SCREENSHOT_TIMEOUT_MS = 150L
+        const val LAUNCHER_CACHE_TTL_MS = 5000L
         const val PIXEL_LAUNCHER_PACKAGE = "com.google.android.apps.nexuslauncher"
         const val AOSP_LAUNCHER_PACKAGE = "com.android.launcher3"
 

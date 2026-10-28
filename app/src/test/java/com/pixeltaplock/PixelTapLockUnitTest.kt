@@ -1398,4 +1398,123 @@ class PixelTapLockUnitTest {
             )
         )
     }
+
+    @Test
+    fun `regression test active or visible IME keyboard blocks Home Screen workspace in both transition and strict modes`() {
+        val allowedLaunchers = setOf(
+            "com.google.android.apps.nexuslauncher",
+            "com.android.launcher3"
+        )
+
+        val activeLauncherWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = true,
+            isFocused = true,
+            packageName = "com.google.android.apps.nexuslauncher",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2992)
+        )
+
+        // Case 1: Visible IME window (e.g. keyboard showing over workspace search)
+        val visibleImeWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_INPUT_METHOD,
+            isActive = true,
+            isFocused = true,
+            packageName = "com.google.android.inputmethod.latin",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 1800, 1344, 2992)
+        )
+
+        val windowsWithIme = listOf(visibleImeWindow, activeLauncherWindow)
+
+        // IME blocks transition candidate
+        assertFalse(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = windowsWithIme,
+                activeRootPackageName = "com.google.android.apps.nexuslauncher",
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = true
+            )
+        )
+
+        // IME blocks strict mode
+        assertFalse(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = windowsWithIme,
+                activeRootPackageName = "com.google.android.apps.nexuslauncher",
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = false
+            )
+        )
+
+        // Case 2: Dismissed IME window (height = 0, inactive) does NOT block
+        val dismissedImeWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_INPUT_METHOD,
+            isActive = false,
+            isFocused = false,
+            packageName = "com.google.android.inputmethod.latin",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 2992, 1344, 2992)
+        )
+        val windowsWithDismissedIme = listOf(dismissedImeWindow, activeLauncherWindow)
+        assertTrue(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = windowsWithDismissedIme,
+                activeRootPackageName = "com.google.android.apps.nexuslauncher",
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = false
+            )
+        )
+    }
+
+    @Test
+    fun `empty string package name correctly falls back to launcher title matching in isHomeWorkspaceSnapshotUnobscured`() {
+        val allowedLaunchers = setOf(
+            "com.google.android.apps.nexuslauncher",
+            "com.android.launcher3"
+        )
+
+        // Window with empty package name ("") but valid launcher title
+        val emptyPkgLauncherWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = true,
+            isFocused = true,
+            packageName = "",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2992),
+            title = "Pixel Launcher"
+        )
+
+        assertTrue(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = listOf(emptyPkgLauncherWindow),
+                activeRootPackageName = null,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = false
+            )
+        )
+    }
+
+    @Test
+    fun `isInterruptingAccessibilityEvent treats system android framework package as interrupting event`() {
+        val allowedLaunchers = setOf(
+            "com.google.android.apps.nexuslauncher",
+            "com.android.launcher3"
+        )
+        val ownPkg = "com.pixeltaplock"
+        val ownWidgetDesc = "Double-tap empty widget area to lock screen"
+
+        // System resolver or framework dialog (package "android") -> INTERRUPTS
+        assertTrue(
+            BlankSpaceHitTester.isInterruptingAccessibilityEvent(
+                eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                packageName = "android",
+                className = "com.android.internal.app.ResolverActivity",
+                contentDescription = null,
+                ownPackageName = ownPkg,
+                ownWidgetContentDescription = ownWidgetDesc,
+                allowedLauncherPackages = allowedLaunchers
+            )
+        )
+    }
 }

@@ -790,7 +790,7 @@ object BlankSpaceHitTester {
                 AccessibilityWindowInfo.TYPE_APPLICATION -> {
                     val pkg = window.packageName
                     val titleStr = window.title
-                    val isLauncherPkg = if (pkg != null) {
+                    val isLauncherPkg = if (!pkg.isNullOrEmpty()) {
                         pkg in allowedLauncherPackages
                     } else if (!titleStr.isNullOrEmpty() &&
                         (allowedLauncherPackages.any { titleStr.contains(it, ignoreCase = true) } ||
@@ -818,6 +818,15 @@ object BlankSpaceHitTester {
                         if (window.isActive || window.isFocused) {
                             hasActiveNonLauncherApp = true
                         }
+                    }
+                }
+                AccessibilityWindowInfo.TYPE_INPUT_METHOD -> {
+                    // An active or visible on-screen keyboard (IME) obscures the workspace.
+                    if (window.isActive || window.isFocused) {
+                        return false
+                    }
+                    if (screenHeightPx > 0 && rectHeight(window.boundsInScreen) > 0) {
+                        return false
                     }
                 }
                 AccessibilityWindowInfo.TYPE_SYSTEM -> {
