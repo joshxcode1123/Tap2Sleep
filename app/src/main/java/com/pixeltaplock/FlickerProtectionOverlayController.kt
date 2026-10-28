@@ -205,11 +205,13 @@ class FlickerProtectionOverlayController(
      *           full-bleed overlay view. If [snapshotBitmap] is provided, displays the snapshot
      *           pixel-aligned with the physical display so the home screen remains visible without
      *           showing the Lock Screen during turn-off (replicating the power button).
-     *   Step 2: Starts a smooth [LinearInterpolator] fade-to-black animation on the snapshot
+     *   Step 2: Starts a smooth [DecelerateInterpolator] fade-to-black animation on the snapshot
      *           overlay over [fadeDurationMs] milliseconds as soon as the first frame renders.
      *   Step 3: Waits for the view's first frame to render (doOnPreDraw + Choreographer frame
-     *           callback + [preLockDelayMs]) so the frame is physically visible before locking.
-     *   Step 4: Invokes [performLockAction] (GLOBAL_ACTION_LOCK_SCREEN).
+     *           callback) so the frame is physically visible before locking. Without a snapshot,
+     *           also waits [preLockDelayMs].
+     *   Step 4: Invokes [performLockAction] (GLOBAL_ACTION_LOCK_SCREEN) once the fade reaches
+     *           pure black (or [preLockDelayMs] after first frame when no snapshot is shown).
      *   Step 5: Removes the overlay via [WindowManager.removeViewImmediate] and recycles any
      *           snapshot bitmap once Display reaches STATE_OFF / STATE_DOZE / STATE_DOZE_SUSPEND
      *           + [postLockHoldMs], or at the hard safety timeout.

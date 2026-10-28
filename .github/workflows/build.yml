@@ -52,7 +52,5 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            app/build/outputs/apk/release/Tap2Sleep-*.apk
-            app/build/outputs/apk/debug/Tap2Sleep-*.apk
+          files: app/build/outputs/apk/release/Tap2Sleep-*.apk
           generate_release_notes: true
