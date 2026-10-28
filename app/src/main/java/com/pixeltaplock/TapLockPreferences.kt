@@ -22,6 +22,7 @@ data class TapLockSettings(
     val enableLockScreen: Boolean = DEFAULT_ENABLE_LOCK_SCREEN,
     val doubleTapTimeoutMs: Int = DEFAULT_DOUBLE_TAP_TIMEOUT_MS,
     val lockScreenWakeGraceMs: Int = DEFAULT_LOCK_SCREEN_WAKE_GRACE_MS,
+    val simulatePowerButton: Boolean = DEFAULT_SIMULATE_POWER_BUTTON,
     val enableFlickerProtection: Boolean = DEFAULT_ENABLE_FLICKER_PROTECTION,
     val enableLockScreenFlickerProtection: Boolean = DEFAULT_ENABLE_LOCK_SCREEN_FLICKER_PROTECTION,
     val preLockBlackoutDelayMs: Int = DEFAULT_PRE_LOCK_DELAY_MS,
@@ -43,11 +44,20 @@ data class TapLockSettings(
         get() = postLockHoldDurationMs.coerceIn(MIN_POST_LOCK_HOLD_MS, MAX_POST_LOCK_HOLD_MS)
 
     /**
+     * Determines whether the home-screen snapshot overlay should be captured and displayed
+     * to simulate the power button turn-off behavior without showing the lock screen.
+     * Only applies when locking from the Home Screen ([isKeyguardLocked] == false).
+     */
+    fun shouldUseSnapshotOverlay(isKeyguardLocked: Boolean): Boolean {
+        return !isKeyguardLocked && simulatePowerButton
+    }
+
+    /**
      * Determines whether the full-bleed #000000 flicker protection overlay should be attached
      * before invoking GLOBAL_ACTION_LOCK_SCREEN.
      * - On the Lock Screen ([isKeyguardLocked] == true), uses [enableLockScreenFlickerProtection]
      *   (default false so SystemUI transitions directly to Always-On Display without flashing black).
-     * - On the Home Screen ([isKeyguardLocked] == false), uses [enableFlickerProtection] (default true).
+     * - On the Home Screen ([isKeyguardLocked] == false), uses [enableFlickerProtection] (default false).
      */
     fun shouldUseFlickerProtection(isKeyguardLocked: Boolean): Boolean {
         return if (isKeyguardLocked) {
@@ -85,7 +95,8 @@ data class TapLockSettings(
         const val MAX_LOCK_SCREEN_WAKE_GRACE_MS = 1500
         const val DEFAULT_LOCK_SCREEN_WAKE_GRACE_MS = 600
 
-        const val DEFAULT_ENABLE_FLICKER_PROTECTION = true
+        const val DEFAULT_SIMULATE_POWER_BUTTON = true
+        const val DEFAULT_ENABLE_FLICKER_PROTECTION = false
         const val DEFAULT_ENABLE_LOCK_SCREEN_FLICKER_PROTECTION = false
 
         const val MIN_PRE_LOCK_DELAY_MS = 0
@@ -105,6 +116,7 @@ class TapLockPreferencesRepository(private val dataStore: DataStore<Preferences>
         val ENABLE_LOCK_SCREEN = booleanPreferencesKey("enable_lock_screen")
         val DOUBLE_TAP_TIMEOUT_MS = intPreferencesKey("double_tap_timeout_ms")
         val LOCK_SCREEN_WAKE_GRACE_MS = intPreferencesKey("lock_screen_wake_grace_ms")
+        val SIMULATE_POWER_BUTTON = booleanPreferencesKey("simulate_power_button")
         val ENABLE_FLICKER_PROTECTION = booleanPreferencesKey("enable_flicker_protection")
         val ENABLE_LOCK_SCREEN_FLICKER_PROTECTION =
             booleanPreferencesKey("enable_lock_screen_flicker_protection")
@@ -138,6 +150,8 @@ class TapLockPreferencesRepository(private val dataStore: DataStore<Preferences>
                         TapLockSettings.MIN_LOCK_SCREEN_WAKE_GRACE_MS,
                         TapLockSettings.MAX_LOCK_SCREEN_WAKE_GRACE_MS
                     ),
+                simulatePowerButton = prefs[Keys.SIMULATE_POWER_BUTTON]
+                    ?: TapLockSettings.DEFAULT_SIMULATE_POWER_BUTTON,
                 enableFlickerProtection = prefs[Keys.ENABLE_FLICKER_PROTECTION]
                     ?: TapLockSettings.DEFAULT_ENABLE_FLICKER_PROTECTION,
                 enableLockScreenFlickerProtection = prefs[Keys.ENABLE_LOCK_SCREEN_FLICKER_PROTECTION]
@@ -181,6 +195,10 @@ class TapLockPreferencesRepository(private val dataStore: DataStore<Preferences>
                 TapLockSettings.MAX_LOCK_SCREEN_WAKE_GRACE_MS
             )
         }
+    }
+
+    suspend fun setSimulatePowerButton(enabled: Boolean) {
+        dataStore.edit { it[Keys.SIMULATE_POWER_BUTTON] = enabled }
     }
 
     suspend fun setEnableFlickerProtection(enabled: Boolean) {

@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Rect
@@ -66,6 +67,9 @@ class TapAccessibilityService : AccessibilityService() {
 
     private var firstOutsideTap: TapSample? = null
     private var pendingDebounceRunnable: Runnable? = null
+    private var pendingScreenshotTimeoutRunnable: Runnable? = null
+    @Volatile
+    private var isScreenshotInProgress = false
 
     @Volatile
     private var lastInteractiveEventUptimeMillis: Long = 0L
@@ -506,6 +510,9 @@ class TapAccessibilityService : AccessibilityService() {
     private fun cancelPendingDoubleTapLock() {
         pendingDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
         pendingDebounceRunnable = null
+        pendingScreenshotTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+        pendingScreenshotTimeoutRunnable = null
+        isScreenshotInProgress = false
     }
 
     private fun hitsInteractiveNodeAt(
@@ -638,11 +645,93 @@ class TapAccessibilityService : AccessibilityService() {
     }
 
     /**
+     * Captures a real-time hardware buffer screenshot using [AccessibilityService.takeScreenshot].
+     * Times out and falls back to null after [timeoutMs] (default 150ms) to ensure screen-locking
+     * is never stalled or blocked.
+     */
+    fun captureDisplayScreenshot(
+        timeoutMs: Long = SCREENSHOT_TIMEOUT_MS,
+        onResult: (Bitmap?) -> Unit
+    ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            onResult(null)
+            return
+        }
+
+        isScreenshotInProgress = true
+        var hasDelivered = false
+        val timeoutRunnable = Runnable {
+            if (!hasDelivered && isScreenshotInProgress) {
+                hasDelivered = true
+                isScreenshotInProgress = false
+                pendingScreenshotTimeoutRunnable = null
+                onResult(null)
+            }
+        }
+        pendingScreenshotTimeoutRunnable = timeoutRunnable
+        mainHandler.postDelayed(timeoutRunnable, timeoutMs)
+
+        try {
+            takeScreenshot(
+                Display.DEFAULT_DISPLAY,
+                mainExecutor,
+                object : TakeScreenshotCallback {
+                    override fun onSuccess(screenshotResult: ScreenshotResult) {
+                        if (hasDelivered || !isScreenshotInProgress) {
+                            try {
+                                screenshotResult.hardwareBuffer.close()
+                            } catch (_: Exception) {}
+                            return
+                        }
+                        hasDelivered = true
+                        isScreenshotInProgress = false
+                        pendingScreenshotTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+                        pendingScreenshotTimeoutRunnable = null
+
+                        val hardwareBuffer = screenshotResult.hardwareBuffer
+                        val colorSpace = screenshotResult.colorSpace
+                        val bitmap = try {
+                            Bitmap.wrapHardwareBuffer(hardwareBuffer, colorSpace)
+                        } catch (_: Exception) {
+                            null
+                        }
+                        try {
+                            hardwareBuffer.close()
+                        } catch (_: Exception) {}
+
+                        onResult(bitmap)
+                    }
+
+                    override fun onFailure(errorCode: Int) {
+                        if (hasDelivered || !isScreenshotInProgress) return
+                        hasDelivered = true
+                        isScreenshotInProgress = false
+                        pendingScreenshotTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+                        pendingScreenshotTimeoutRunnable = null
+                        onResult(null)
+                    }
+                }
+            )
+        } catch (_: Exception) {
+            if (!hasDelivered && isScreenshotInProgress) {
+                hasDelivered = true
+                isScreenshotInProgress = false
+                pendingScreenshotTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+                pendingScreenshotTimeoutRunnable = null
+                onResult(null)
+            }
+        }
+    }
+
+    /**
      * Executes GLOBAL_ACTION_LOCK_SCREEN (preserving biometric fingerprint & face unlock).
-     * When locking from the Home Screen (or if Lock Screen flicker mask is explicitly enabled),
-     * attaches the QHD+ Edge-to-Edge Flicker Protection Overlay first. When already on the
-     * Lock Screen with [TapLockSettings.enableLockScreenFlickerProtection] off (default),
-     * bypasses the black overlay so SystemUI transitions directly into Always-On Display (AOD).
+     * - When locking from the Home Screen with [TapLockSettings.simulatePowerButton] on (default),
+     *   captures a pixel-aligned hardware screenshot of the Home Screen and displays it in the
+     *   accessibility overlay during the turn-off animation so the Lock Screen never flashes.
+     * - When locking from the Home Screen with [TapLockSettings.enableFlickerProtection] on (legacy),
+     *   attaches the pure #000000 black overlay.
+     * - When already on the Lock Screen with [TapLockSettings.enableLockScreenFlickerProtection] off
+     *   (default), bypasses the overlay so SystemUI transitions directly into Always-On Display (AOD).
      */
     fun executeFlickerProtectedLock() {
         cancelPendingDoubleTapLock()
@@ -653,29 +742,50 @@ class TapAccessibilityService : AccessibilityService() {
         } catch (_: Exception) {
             false
         }
-        val useFlickerProtection = settings.shouldUseFlickerProtection(isKeyguardLocked = isLocked)
+
+        val useSnapshot = settings.shouldUseSnapshotOverlay(isKeyguardLocked = isLocked)
+        val useFlicker = settings.shouldUseFlickerProtection(isKeyguardLocked = isLocked)
         val controller = flickerController
-        if (controller != null) {
-            controller.executeLockWithFlickerProtection(
-                enableFlickerProtection = useFlickerProtection,
-                preLockDelayMs = settings.clampedPreLockBlackoutDelayMs,
-                postLockHoldMs = settings.clampedPostLockHoldDurationMs,
-                performLockAction = {
-                    val locked = performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
-                    if (locked) {
-                        lastObservedInteractive = false
-                    }
-                    locked
-                }
-            )
-        } else {
+
+        if (controller == null) {
             if (performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)) {
                 lastObservedInteractive = false
             }
+            return
+        }
+
+        val performLock: () -> Boolean = {
+            val locked = performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
+            if (locked) {
+                lastObservedInteractive = false
+            }
+            locked
+        }
+
+        if (useSnapshot) {
+            captureDisplayScreenshot(SCREENSHOT_TIMEOUT_MS) { snapshotBitmap ->
+                val showOverlay = snapshotBitmap != null || useFlicker
+                controller.executeLockWithOverlay(
+                    showOverlay = showOverlay,
+                    snapshotBitmap = snapshotBitmap,
+                    preLockDelayMs = settings.clampedPreLockBlackoutDelayMs,
+                    postLockHoldMs = settings.clampedPostLockHoldDurationMs,
+                    performLockAction = performLock
+                )
+            }
+        } else {
+            controller.executeLockWithOverlay(
+                showOverlay = useFlicker,
+                snapshotBitmap = null,
+                preLockDelayMs = settings.clampedPreLockBlackoutDelayMs,
+                postLockHoldMs = settings.clampedPostLockHoldDurationMs,
+                performLockAction = performLock
+            )
         }
     }
 
     companion object {
+        const val SCREENSHOT_TIMEOUT_MS = 150L
         const val PIXEL_LAUNCHER_PACKAGE = "com.google.android.apps.nexuslauncher"
         const val AOSP_LAUNCHER_PACKAGE = "com.android.launcher3"
 

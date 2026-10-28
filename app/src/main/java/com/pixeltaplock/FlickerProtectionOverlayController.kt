@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Rect
@@ -18,6 +19,7 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.ImageView
 import androidx.core.view.doOnPreDraw
 
 data class OverlayGeometry(
@@ -45,6 +47,7 @@ class FlickerProtectionOverlayController(
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var activeOverlayView: FrameLayout? = null
+    private var activeSnapshotBitmap: Bitmap? = null
     private var isLockSequenceInFlight = false
     private var hasTriggeredPostOffRemoval = false
 
@@ -139,6 +142,18 @@ class FlickerProtectionOverlayController(
         val updatedParams = buildOverlayLayoutParams(maxBounds)
         try {
             windowManager.updateViewLayout(view, updatedParams)
+            if (view.childCount > 0) {
+                val child = view.getChildAt(0)
+                val halfMargin = SAFETY_OVERSIZE_MARGIN_PX / 2
+                val lp = FrameLayout.LayoutParams(
+                    maxBounds.width(),
+                    maxBounds.height()
+                ).apply {
+                    gravity = Gravity.TOP or Gravity.START
+                    setMargins(halfMargin, halfMargin, 0, 0)
+                }
+                child.layoutParams = lp
+            }
         } catch (_: IllegalArgumentException) {
             // View was detached concurrently
         }
@@ -146,16 +161,8 @@ class FlickerProtectionOverlayController(
 
     /**
      * Executes the lock sequence:
-     * - If [enableFlickerProtection] is false, calls [performLockAction] immediately.
-     * - If [enableFlickerProtection] is true:
-     *   Step 1: Queries fresh [WindowManager.getMaximumWindowMetrics] bounds and attaches the
-     *           oversized pure #000000 black overlay view.
-     *   Step 2: Waits for the view's first frame to render (doOnPreDraw + Choreographer frame
-     *           callback + [preLockDelayMs]) so the OLED panel is physically black before locking.
-     *   Step 3: Invokes [performLockAction] (GLOBAL_ACTION_LOCK_SCREEN).
-     *   Step 4: Removes the overlay via [WindowManager.removeViewImmediate] once Display reaches
-     *           STATE_OFF / STATE_DOZE / STATE_DOZE_SUSPEND + [postLockHoldMs], or at the hard
-     *           safety timeout (1200ms).
+     * - If [enableFlickerProtection] is false, calls [performLockAction] immediately with no overlay.
+     * - If [enableFlickerProtection] is true: attaches the solid black overlay before locking.
      */
     fun executeLockWithFlickerProtection(
         enableFlickerProtection: Boolean,
@@ -163,10 +170,42 @@ class FlickerProtectionOverlayController(
         postLockHoldMs: Int,
         performLockAction: () -> Boolean
     ) {
+        executeLockWithOverlay(
+            showOverlay = enableFlickerProtection,
+            snapshotBitmap = null,
+            preLockDelayMs = preLockDelayMs,
+            postLockHoldMs = postLockHoldMs,
+            performLockAction = performLockAction
+        )
+    }
+
+    /**
+     * Executes the lock sequence with an optional snapshot overlay or pure black overlay:
+     * - If [showOverlay] is false, calls [performLockAction] immediately with no overlay.
+     * - If [showOverlay] is true:
+     *   Step 1: Queries fresh [WindowManager.getMaximumWindowMetrics] bounds and attaches the
+     *           full-bleed overlay view. If [snapshotBitmap] is provided, displays the snapshot
+     *           pixel-aligned with the physical display so the home screen remains visible without
+     *           showing the Lock Screen during turn-off (replicating the power button).
+     *   Step 2: Waits for the view's first frame to render (doOnPreDraw + Choreographer frame
+     *           callback + [preLockDelayMs]) so the frame is physically visible before locking.
+     *   Step 3: Invokes [performLockAction] (GLOBAL_ACTION_LOCK_SCREEN).
+     *   Step 4: Removes the overlay via [WindowManager.removeViewImmediate] and recycles any
+     *           snapshot bitmap once Display reaches STATE_OFF / STATE_DOZE / STATE_DOZE_SUSPEND
+     *           + [postLockHoldMs], or at the hard safety timeout (1200ms).
+     */
+    fun executeLockWithOverlay(
+        showOverlay: Boolean,
+        snapshotBitmap: Bitmap? = null,
+        preLockDelayMs: Int,
+        postLockHoldMs: Int,
+        performLockAction: () -> Boolean
+    ) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post {
-                executeLockWithFlickerProtection(
-                    enableFlickerProtection = enableFlickerProtection,
+                executeLockWithOverlay(
+                    showOverlay = showOverlay,
+                    snapshotBitmap = snapshotBitmap,
                     preLockDelayMs = preLockDelayMs,
                     postLockHoldMs = postLockHoldMs,
                     performLockAction = performLockAction
@@ -175,13 +214,23 @@ class FlickerProtectionOverlayController(
             return
         }
 
-        if (!enableFlickerProtection) {
+        if (!showOverlay) {
             removeOverlayImmediately()
+            if (snapshotBitmap != null && !snapshotBitmap.isRecycled) {
+                try {
+                    snapshotBitmap.recycle()
+                } catch (_: Exception) {}
+            }
             performLockAction()
             return
         }
 
         if (isLockSequenceInFlight) {
+            if (snapshotBitmap != null && !snapshotBitmap.isRecycled) {
+                try {
+                    snapshotBitmap.recycle()
+                } catch (_: Exception) {}
+            }
             return
         }
         isLockSequenceInFlight = true
@@ -197,14 +246,15 @@ class FlickerProtectionOverlayController(
         ).toLong()
         currentHoldDurationMs = clampedPostHoldMs
 
-        // Ensure any stale view or callbacks are cleaned up before attaching a fresh one
+        // Ensure any stale view, bitmap, or callbacks are cleaned up before attaching a fresh one
         cancelPreLockCallbacks()
         removeOverlayViewOnly()
 
-        // Step 1: Query real-time hardware maximumWindowMetrics (never cached) and attach pure black overlay
+        // Step 1: Query real-time hardware maximumWindowMetrics (never cached) and attach overlay
         val realtimeBounds = queryRealtimeMaximumBounds()
         val layoutParams = buildOverlayLayoutParams(realtimeBounds)
-        val overlayView = createPureBlackOverlayView()
+        val overlayView = createOverlayView(snapshotBitmap, realtimeBounds)
+        activeSnapshotBitmap = snapshotBitmap
 
         val attached = try {
             windowManager.addView(overlayView, layoutParams)
@@ -217,6 +267,14 @@ class FlickerProtectionOverlayController(
 
         if (!attached) {
             isLockSequenceInFlight = false
+            activeSnapshotBitmap?.let { bmp ->
+                if (!bmp.isRecycled) {
+                    try {
+                        bmp.recycle()
+                    } catch (_: Exception) {}
+                }
+            }
+            activeSnapshotBitmap = null
             performLockAction()
             return
         }
@@ -309,17 +367,27 @@ class FlickerProtectionOverlayController(
     }
 
     private fun removeOverlayViewOnly() {
-        val view = activeOverlayView ?: return
+        val view = activeOverlayView
         activeOverlayView = null
-        try {
-            windowManager.removeViewImmediate(view)
-        } catch (_: IllegalArgumentException) {
-            // View was already detached
-        } catch (_: Exception) {
+        activeSnapshotBitmap?.let { bmp ->
+            if (!bmp.isRecycled) {
+                try {
+                    bmp.recycle()
+                } catch (_: Exception) {}
+            }
+        }
+        activeSnapshotBitmap = null
+        if (view != null) {
             try {
-                windowManager.removeView(view)
+                windowManager.removeViewImmediate(view)
+            } catch (_: IllegalArgumentException) {
+                // View was already detached
             } catch (_: Exception) {
-                // Ignore
+                try {
+                    windowManager.removeView(view)
+                } catch (_: Exception) {
+                    // Ignore
+                }
             }
         }
     }
@@ -328,8 +396,8 @@ class FlickerProtectionOverlayController(
         return windowManager.maximumWindowMetrics.bounds
     }
 
-    private fun createPureBlackOverlayView(): FrameLayout {
-        return FrameLayout(context).apply {
+    private fun createOverlayView(snapshotBitmap: Bitmap?, bounds: Rect): FrameLayout {
+        val root = FrameLayout(context).apply {
             setBackgroundColor(Color.BLACK)
             alpha = 1.0f
             fitsSystemWindows = false
@@ -354,6 +422,32 @@ class FlickerProtectionOverlayController(
                 override fun onViewDetachedFromWindow(v: View) = Unit
             })
         }
+
+        if (snapshotBitmap != null && !snapshotBitmap.isRecycled) {
+            val imageView = ImageView(context).apply {
+                setImageBitmap(snapshotBitmap)
+                scaleType = ImageView.ScaleType.FIT_XY
+                fitsSystemWindows = false
+                isClickable = false
+                isFocusable = false
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            val halfMargin = SAFETY_OVERSIZE_MARGIN_PX / 2
+            val lp = FrameLayout.LayoutParams(
+                bounds.width(),
+                bounds.height()
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                setMargins(halfMargin, halfMargin, 0, 0)
+            }
+            root.addView(imageView, lp)
+        }
+
+        return root
+    }
+
+    private fun createPureBlackOverlayView(): FrameLayout {
+        return createOverlayView(null, queryRealtimeMaximumBounds())
     }
 
     @Suppress("DEPRECATION")

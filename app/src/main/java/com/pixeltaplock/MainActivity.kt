@@ -248,6 +248,9 @@ fun PixelTapLockSettingsScreen(
                 settings = settings,
                 hardwareWidthPx = hardwareWidthPx,
                 hardwareHeightPx = hardwareHeightPx,
+                onToggleSimulatePowerButton = { enabled ->
+                    coroutineScope.launch { repository.setSimulatePowerButton(enabled) }
+                },
                 onToggleFlickerProtection = { enabled ->
                     coroutineScope.launch { repository.setEnableFlickerProtection(enabled) }
                 },
@@ -568,6 +571,7 @@ private fun FlickerProtectionCard(
     settings: TapLockSettings,
     hardwareWidthPx: Int,
     hardwareHeightPx: Int,
+    onToggleSimulatePowerButton: (Boolean) -> Unit,
     onToggleFlickerProtection: (Boolean) -> Unit,
     onToggleLockScreenFlickerProtection: (Boolean) -> Unit,
     onPreLockDelayChange: (Int) -> Unit,
@@ -581,7 +585,7 @@ private fun FlickerProtectionCard(
     }
 
     val anyFlickerMaskEnabled =
-        settings.enableFlickerProtection || settings.enableLockScreenFlickerProtection
+        settings.enableFlickerProtection || settings.enableLockScreenFlickerProtection || settings.simulatePowerButton
 
     val oversizedGeometry = remember(hardwareWidthPx, hardwareHeightPx) {
         FlickerProtectionOverlayController.calculateOversizedOverlayGeometry(
@@ -600,7 +604,7 @@ private fun FlickerProtectionCard(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "QHD+ Full-Bleed Flicker Protection",
+                text = "QHD+ Full-Bleed Flicker Protection & Turn-Off",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -614,8 +618,17 @@ private fun FlickerProtectionCard(
             }
 
             SettingSwitchRow(
-                title = "Enable QHD+ Full-Bleed Flicker Protection",
-                subtitle = "Covers 100% of the physical OLED panel (including camera cutout & system bars) with pure #000000 before locking from the Home Screen",
+                title = "Simulate Power Button Turn-Off",
+                subtitle = "Captures an instantaneous snapshot of the Home Screen so it remains visible during turn-off without showing the Lock Screen",
+                checked = settings.simulatePowerButton,
+                onCheckedChange = onToggleSimulatePowerButton
+            )
+
+            HorizontalDivider()
+
+            SettingSwitchRow(
+                title = "Enable Pure Black Flicker Protection",
+                subtitle = "Covers 100% of the OLED panel with pure #000000 before locking (disabled by default; use if snapshot simulation is turned off)",
                 checked = settings.enableFlickerProtection,
                 onCheckedChange = onToggleFlickerProtection
             )
@@ -650,7 +663,7 @@ private fun FlickerProtectionCard(
                     )
                 }
                 Text(
-                    text = "Ensures the pure black frame hits the OLED panel before GLOBAL_ACTION_LOCK_SCREEN executes (0ms – 100ms, default 24ms)",
+                    text = "Ensures the overlay frame hits the OLED panel before GLOBAL_ACTION_LOCK_SCREEN executes (0ms – 100ms, default 24ms)",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -686,7 +699,7 @@ private fun FlickerProtectionCard(
                     )
                 }
                 Text(
-                    text = "How long the black mask stays up while the display transitions to Off / Always-On Display (100ms – 1000ms, default 400ms)",
+                    text = "How long the snapshot or black mask stays up while the display transitions to Off / Always-On Display (100ms – 1000ms, default 400ms)",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
