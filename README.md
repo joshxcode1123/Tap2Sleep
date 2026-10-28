@@ -1,7 +1,7 @@
 # Tap2Sleep for Pixel (Tap2Sleep)
 
 <p align="center">
-  <img src="art/app_icon.jpg" width="128" height="128" alt="Tap2Sleep Icon" style="border-radius: 28px;" />
+  <img src="art/app_icon.png" width="128" height="128" alt="Tap2Sleep Icon" />
 </p>
 
 A production-ready, zero-dependency (pure AndroidX & Material 3) Android application for Google Pixel devices (Android 12–15+). Shows as **Tap2Sleep** in your App Drawer and **Tap2Sleep for Pixel** in system settings.
