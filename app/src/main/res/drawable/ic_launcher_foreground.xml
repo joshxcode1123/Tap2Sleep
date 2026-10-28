@@ -1,13 +1,110 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Outer Concentric Ripple Ring -->
     <path
-        android:fillColor="#A8C7FA"
-        android:pathData="M54,28A26,26 0,1 1,28 54A26,26 0,0 1,54 28M54,34A20,20 0,1 0,74 54A20,20 0,0 0,54 34Z" />
+        android:strokeColor="#5B7BA8"
+        android:strokeWidth="2.5"
+        android:strokeAlpha="0.65"
+        android:fillColor="#00000000"
+        android:pathData="M 48,22 A 24,24 0 1 1 47.9,22 Z" />
+
+    <!-- Inner Concentric Ring -->
+    <path
+        android:strokeColor="#A8C7FA"
+        android:strokeWidth="2.5"
+        android:strokeAlpha="0.9"
+        android:fillColor="#00000000"
+        android:pathData="M 48,34 A 12,12 0 1 1 47.9,34 Z" />
+
+    <!-- Center Pulse Dot -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M54,42A12,12 0,1 1,42 54A12,12 0,0 1,54 42Z" />
+        android:pathData="M 48,42 A 4,4 0 1 1 47.9,42 Z" />
+
+    <!-- Pixelated 2D Splash Between Rings (Google Pixel Color Palette) -->
+    <!-- Cyan / Light Blue Pixels -->
+    <path
+        android:fillColor="#70B6FF"
+        android:pathData="M 60,47 h 3 v 3 h -3 z
+                          M 31,40 h 3 v 3 h -3 z
+                          M 43,27 h 3 v 3 h -3 z
+                          M 47,60 h 3 v 3 h -3 z
+                          M 54,23 h 2.5 v 2.5 h -2.5 z" />
+
+    <!-- Vibrant Mint / Electric Accent Pixels -->
+    <path
+        android:fillColor="#68DDBA"
+        android:pathData="M 39,63 h 3 v 3 h -3 z
+                          M 65,39 h 3 v 3 h -3 z
+                          M 33,31 h 2.5 v 2.5 h -2.5 z
+                          M 60,34 h 2.5 v 2.5 h -2.5 z" />
+
+    <!-- Lavender / Soft Violet Pixels -->
+    <path
+        android:fillColor="#D0BCFF"
+        android:pathData="M 49,24 h 3 v 3 h -3 z
+                          M 25,49 h 3 v 3 h -3 z
+                          M 66,56 h 2.5 v 2.5 h -2.5 z
+                          M 34,55 h 2.5 v 2.5 h -2.5 z
+                          M 59,58 h 2.5 v 2.5 h -2.5 z" />
+
+    <!-- Highlight White Spark Pixels -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 50,58 h 2 v 2 h -2 z
+                          M 30,53 h 2 v 2 h -2 z
+                          M 34,37 h 2 v 2 h -2 z
+                          M 46,26 h 2 v 2 h -2 z
+                          M 60,37 h 2 v 2 h -2 z" />
+
+    <!-- Extended Semi-Oval Shape (Finger Tapping From Bottom Right) -->
+    <group
+        android:pivotX="48"
+        android:pivotY="46"
+        android:rotation="-45">
+
+        <!-- Finger Drop Shadow for Material Elevation -->
+        <path
+            android:fillColor="#000000"
+            android:fillAlpha="0.35"
+            android:pathData="M 40,57 v 34 h 16 v -34 a 8,8 0 0 0 -16,0 z" />
+
+        <!-- Finger Base Capsule -->
+        <path
+            android:pathData="M 41,55 v 36 h 14 v -36 a 7,7 0 0 0 -14,0 z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:startX="41"
+                    android:startY="50"
+                    android:endX="55"
+                    android:endY="90"
+                    android:type="linear">
+                    <item android:color="#E2E7F3" android:offset="0.0" />
+                    <item android:color="#C5CEE0" android:offset="0.5" />
+                    <item android:color="#9AA6BE" android:offset="1.0" />
+                </gradient>
+            </aapt:attr>
+        </path>
+
+        <!-- Fingertip Touch Contact Highlight (Material 3 Glint) -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:fillAlpha="0.85"
+            android:pathData="M 44,52 a 4,4 0 0 1 8,0 a 4,2 0 0 1 -8,0 z" />
+
+        <!-- Subtle Fingernail / Knuckle Line Accent -->
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="1.2"
+            android:strokeAlpha="0.4"
+            android:fillColor="#00000000"
+            android:pathData="M 44,61 a 4,4 0 0 0 8,0" />
+    </group>
+
 </vector>
