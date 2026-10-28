@@ -21,6 +21,7 @@ data class TapLockSettings(
     val enableHomeScreen: Boolean = DEFAULT_ENABLE_HOME_SCREEN,
     val enableLockScreen: Boolean = DEFAULT_ENABLE_LOCK_SCREEN,
     val doubleTapTimeoutMs: Int = DEFAULT_DOUBLE_TAP_TIMEOUT_MS,
+    val lockScreenWakeGraceMs: Int = DEFAULT_LOCK_SCREEN_WAKE_GRACE_MS,
     val enableFlickerProtection: Boolean = DEFAULT_ENABLE_FLICKER_PROTECTION,
     val enableLockScreenFlickerProtection: Boolean = DEFAULT_ENABLE_LOCK_SCREEN_FLICKER_PROTECTION,
     val preLockBlackoutDelayMs: Int = DEFAULT_PRE_LOCK_DELAY_MS,
@@ -28,6 +29,12 @@ data class TapLockSettings(
 ) {
     val clampedDoubleTapTimeoutMs: Int
         get() = doubleTapTimeoutMs.coerceIn(MIN_DOUBLE_TAP_TIMEOUT_MS, MAX_DOUBLE_TAP_TIMEOUT_MS)
+
+    val clampedLockScreenWakeGraceMs: Int
+        get() = lockScreenWakeGraceMs.coerceIn(
+            MIN_LOCK_SCREEN_WAKE_GRACE_MS,
+            MAX_LOCK_SCREEN_WAKE_GRACE_MS
+        )
 
     val clampedPreLockBlackoutDelayMs: Int
         get() = preLockBlackoutDelayMs.coerceIn(MIN_PRE_LOCK_DELAY_MS, MAX_PRE_LOCK_DELAY_MS)
@@ -50,6 +57,22 @@ data class TapLockSettings(
         }
     }
 
+    /**
+     * Returns the post-wake grace period in milliseconds for the current screen context.
+     * - On the Lock Screen ([isKeyguardLocked] == true and [enableLockScreen] == true), uses
+     *   [clampedLockScreenWakeGraceMs].
+     * - On the Home Screen ([isKeyguardLocked] == false), returns 0L so pre-wake taps
+     *   (at or before screen wake) are still rejected without imposing the Lock Screen wake
+     *   delay after the user has already unlocked to the Home Screen.
+     */
+    fun effectiveWakeGraceMs(isKeyguardLocked: Boolean): Long {
+        return if (isKeyguardLocked && enableLockScreen) {
+            clampedLockScreenWakeGraceMs.toLong()
+        } else {
+            0L
+        }
+    }
+
     companion object {
         const val DEFAULT_ENABLE_HOME_SCREEN = true
         const val DEFAULT_ENABLE_LOCK_SCREEN = true
@@ -57,6 +80,10 @@ data class TapLockSettings(
         const val MIN_DOUBLE_TAP_TIMEOUT_MS = 150
         const val MAX_DOUBLE_TAP_TIMEOUT_MS = 500
         const val DEFAULT_DOUBLE_TAP_TIMEOUT_MS = 300
+
+        const val MIN_LOCK_SCREEN_WAKE_GRACE_MS = 0
+        const val MAX_LOCK_SCREEN_WAKE_GRACE_MS = 1500
+        const val DEFAULT_LOCK_SCREEN_WAKE_GRACE_MS = 600
 
         const val DEFAULT_ENABLE_FLICKER_PROTECTION = true
         const val DEFAULT_ENABLE_LOCK_SCREEN_FLICKER_PROTECTION = false
@@ -77,6 +104,7 @@ class TapLockPreferencesRepository(private val dataStore: DataStore<Preferences>
         val ENABLE_HOME_SCREEN = booleanPreferencesKey("enable_home_screen")
         val ENABLE_LOCK_SCREEN = booleanPreferencesKey("enable_lock_screen")
         val DOUBLE_TAP_TIMEOUT_MS = intPreferencesKey("double_tap_timeout_ms")
+        val LOCK_SCREEN_WAKE_GRACE_MS = intPreferencesKey("lock_screen_wake_grace_ms")
         val ENABLE_FLICKER_PROTECTION = booleanPreferencesKey("enable_flicker_protection")
         val ENABLE_LOCK_SCREEN_FLICKER_PROTECTION =
             booleanPreferencesKey("enable_lock_screen_flicker_protection")
@@ -103,6 +131,12 @@ class TapLockPreferencesRepository(private val dataStore: DataStore<Preferences>
                     .coerceIn(
                         TapLockSettings.MIN_DOUBLE_TAP_TIMEOUT_MS,
                         TapLockSettings.MAX_DOUBLE_TAP_TIMEOUT_MS
+                    ),
+                lockScreenWakeGraceMs = (prefs[Keys.LOCK_SCREEN_WAKE_GRACE_MS]
+                    ?: TapLockSettings.DEFAULT_LOCK_SCREEN_WAKE_GRACE_MS)
+                    .coerceIn(
+                        TapLockSettings.MIN_LOCK_SCREEN_WAKE_GRACE_MS,
+                        TapLockSettings.MAX_LOCK_SCREEN_WAKE_GRACE_MS
                     ),
                 enableFlickerProtection = prefs[Keys.ENABLE_FLICKER_PROTECTION]
                     ?: TapLockSettings.DEFAULT_ENABLE_FLICKER_PROTECTION,
@@ -136,6 +170,15 @@ class TapLockPreferencesRepository(private val dataStore: DataStore<Preferences>
             it[Keys.DOUBLE_TAP_TIMEOUT_MS] = timeoutMs.coerceIn(
                 TapLockSettings.MIN_DOUBLE_TAP_TIMEOUT_MS,
                 TapLockSettings.MAX_DOUBLE_TAP_TIMEOUT_MS
+            )
+        }
+    }
+
+    suspend fun setLockScreenWakeGraceMs(graceMs: Int) {
+        dataStore.edit {
+            it[Keys.LOCK_SCREEN_WAKE_GRACE_MS] = graceMs.coerceIn(
+                TapLockSettings.MIN_LOCK_SCREEN_WAKE_GRACE_MS,
+                TapLockSettings.MAX_LOCK_SCREEN_WAKE_GRACE_MS
             )
         }
     }

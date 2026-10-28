@@ -54,7 +54,7 @@ data class NodeSnapshot(
 object BlankSpaceHitTester {
 
     const val EVENT_CORRELATION_DEBOUNCE_MS = 60L
-    const val SCREEN_WAKE_TRANSITION_GRACE_MS = 1000L
+    const val SCREEN_WAKE_TRANSITION_GRACE_MS = 600L
     const val SYSTEM_UI_PACKAGE = "com.android.systemui"
 
     private val DEDICATED_WORKSPACE_CLASSES = listOf(
@@ -163,10 +163,11 @@ object BlankSpaceHitTester {
         lastScreenWakeUptimeMillis: Long,
         gracePeriodMs: Long = SCREEN_WAKE_TRANSITION_GRACE_MS
     ): Boolean {
-        if (lastScreenWakeUptimeMillis <= 0L || gracePeriodMs <= 0L) {
+        if (lastScreenWakeUptimeMillis <= 0L) {
             return false
         }
-        return tapUptimeMillis <= (lastScreenWakeUptimeMillis + gracePeriodMs)
+        val effectiveGraceMs = gracePeriodMs.coerceAtLeast(0L)
+        return tapUptimeMillis <= (lastScreenWakeUptimeMillis + effectiveGraceMs)
     }
 
     /**

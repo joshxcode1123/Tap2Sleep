@@ -226,7 +226,7 @@ fun PixelTapLockSettingsScreen(
                 )
             }
 
-            // 3. Blank-Space Detection Toggles & Double-Tap Speed Slider
+            // 3. Blank-Space Detection Toggles & Double-Tap Speed / Wake Grace Sliders
             DetectionSettingsCard(
                 settings = settings,
                 onToggleHomeScreen = { enabled ->
@@ -237,6 +237,9 @@ fun PixelTapLockSettingsScreen(
                 },
                 onDoubleTapTimeoutChange = { timeoutMs ->
                     coroutineScope.launch { repository.setDoubleTapTimeoutMs(timeoutMs) }
+                },
+                onLockScreenWakeGraceChange = { graceMs ->
+                    coroutineScope.launch { repository.setLockScreenWakeGraceMs(graceMs) }
                 }
             )
 
@@ -445,10 +448,14 @@ private fun DetectionSettingsCard(
     settings: TapLockSettings,
     onToggleHomeScreen: (Boolean) -> Unit,
     onToggleLockScreen: (Boolean) -> Unit,
-    onDoubleTapTimeoutChange: (Int) -> Unit
+    onDoubleTapTimeoutChange: (Int) -> Unit,
+    onLockScreenWakeGraceChange: (Int) -> Unit
 ) {
     var sliderValue by remember(settings.clampedDoubleTapTimeoutMs) {
         mutableStateOf(settings.clampedDoubleTapTimeoutMs.toFloat())
+    }
+    var wakeGraceSlider by remember(settings.clampedLockScreenWakeGraceMs) {
+        mutableStateOf(settings.clampedLockScreenWakeGraceMs.toFloat())
     }
 
     ElevatedCard(
@@ -514,6 +521,42 @@ private fun DetectionSettingsCard(
                         onDoubleTapTimeoutChange(sliderValue.roundToInt())
                     },
                     valueRange = TapLockSettings.MIN_DOUBLE_TAP_TIMEOUT_MS.toFloat()..TapLockSettings.MAX_DOUBLE_TAP_TIMEOUT_MS.toFloat()
+                )
+            }
+
+            HorizontalDivider()
+
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Lock Screen Wake Grace Delay",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "${wakeGraceSlider.roundToInt()} ms",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text(
+                    text = "Delay after waking from AOD before Lock Screen double-tap to AOD is allowed, preventing wake taps from re-locking (0ms – 1500ms, default 600ms)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Slider(
+                    value = wakeGraceSlider,
+                    onValueChange = { wakeGraceSlider = it },
+                    onValueChangeFinished = {
+                        onLockScreenWakeGraceChange(wakeGraceSlider.roundToInt())
+                    },
+                    enabled = settings.enableLockScreen,
+                    valueRange = TapLockSettings.MIN_LOCK_SCREEN_WAKE_GRACE_MS.toFloat()..TapLockSettings.MAX_LOCK_SCREEN_WAKE_GRACE_MS.toFloat()
                 )
             }
         }

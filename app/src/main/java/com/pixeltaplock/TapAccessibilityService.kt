@@ -97,9 +97,15 @@ class TapAccessibilityService : AccessibilityService() {
             val nowUptime = SystemClock.uptimeMillis()
             when (intent?.action) {
                 Intent.ACTION_SCREEN_ON -> {
-                    lastScreenWakeUptimeMillis = maxOf(lastScreenWakeUptimeMillis, nowUptime)
-                    firstOutsideTap = null
-                    cancelPendingDoubleTapLock()
+                    val wasAwakeBefore = BlankSpaceHitTester.isDisplayFullyAwake(
+                        displayState = lastObservedDisplayState,
+                        isInteractive = lastObservedInteractive
+                    )
+                    if (!wasAwakeBefore) {
+                        lastScreenWakeUptimeMillis = maxOf(lastScreenWakeUptimeMillis, nowUptime)
+                        firstOutsideTap = null
+                        cancelPendingDoubleTapLock()
+                    }
                     syncDisplayWakeState(nowUptime)
                 }
                 Intent.ACTION_SCREEN_OFF -> {
@@ -358,20 +364,29 @@ class TapAccessibilityService : AccessibilityService() {
             return
         }
 
+        val settings = currentSettings
+        val isLocked = try {
+            keyguardManager.isKeyguardLocked
+        } catch (_: Exception) {
+            false
+        }
+        val wakeGraceMs = settings.effectiveWakeGraceMs(isKeyguardLocked = isLocked)
+
         // Ignore taps occurring during the AOD / screen-wake transition to the normal Lock Screen
         if (BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
                 tapUptimeMillis = uptimeMillis,
-                lastScreenWakeUptimeMillis = lastScreenWakeUptimeMillis
+                lastScreenWakeUptimeMillis = lastScreenWakeUptimeMillis,
+                gracePeriodMs = wakeGraceMs
             ) || BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
                 tapUptimeMillis = nowUptime,
-                lastScreenWakeUptimeMillis = lastScreenWakeUptimeMillis
+                lastScreenWakeUptimeMillis = lastScreenWakeUptimeMillis,
+                gracePeriodMs = wakeGraceMs
             )
         ) {
             firstOutsideTap = null
             return
         }
 
-        val settings = currentSettings
         if (!isEligibleScreenContext(settings)) {
             firstOutsideTap = null
             return
@@ -391,7 +406,13 @@ class TapAccessibilityService : AccessibilityService() {
             uptimeMillis = uptimeMillis
         )
 
-        val previousTap = firstOutsideTap
+        val previousTap = firstOutsideTap?.takeUnless {
+            BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
+                tapUptimeMillis = it.uptimeMillis,
+                lastScreenWakeUptimeMillis = lastScreenWakeUptimeMillis,
+                gracePeriodMs = wakeGraceMs
+            )
+        }
         if (previousTap == null) {
             // Check A on Tap 1 when coordinates are present
             if (currentTap.hasValidCoordinates && hitsInteractiveNodeAt(rawX, rawY, screenConfig)) {
@@ -440,12 +461,23 @@ class TapAccessibilityService : AccessibilityService() {
             if (!syncDisplayWakeState(debounceNowUptime)) {
                 return@Runnable
             }
+            val debounceSettings = currentSettings
+            val debounceIsLocked = try {
+                keyguardManager.isKeyguardLocked
+            } catch (_: Exception) {
+                false
+            }
+            val debounceWakeGraceMs = debounceSettings.effectiveWakeGraceMs(
+                isKeyguardLocked = debounceIsLocked
+            )
             if (BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
                     tapUptimeMillis = tap1Time,
-                    lastScreenWakeUptimeMillis = lastScreenWakeUptimeMillis
+                    lastScreenWakeUptimeMillis = lastScreenWakeUptimeMillis,
+                    gracePeriodMs = debounceWakeGraceMs
                 ) || BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
                     tapUptimeMillis = debounceNowUptime,
-                    lastScreenWakeUptimeMillis = lastScreenWakeUptimeMillis
+                    lastScreenWakeUptimeMillis = lastScreenWakeUptimeMillis,
+                    gracePeriodMs = debounceWakeGraceMs
                 )
             ) {
                 return@Runnable
@@ -458,7 +490,7 @@ class TapAccessibilityService : AccessibilityService() {
             if (interrupted) {
                 return@Runnable
             }
-            if (!isEligibleScreenContext(currentSettings)) {
+            if (!isEligibleScreenContext(debounceSettings)) {
                 return@Runnable
             }
             executeFlickerProtectedLock()
@@ -629,13 +661,17 @@ class TapAccessibilityService : AccessibilityService() {
                 preLockDelayMs = settings.clampedPreLockBlackoutDelayMs,
                 postLockHoldMs = settings.clampedPostLockHoldDurationMs,
                 performLockAction = {
-                    lastObservedInteractive = false
-                    performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
+                    val locked = performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
+                    if (locked) {
+                        lastObservedInteractive = false
+                    }
+                    locked
                 }
             )
         } else {
-            lastObservedInteractive = false
-            performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
+            if (performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)) {
+                lastObservedInteractive = false
+            }
         }
     }
 

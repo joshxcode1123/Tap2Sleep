@@ -448,21 +448,28 @@ class PixelTapLockUnitTest {
 
     @Test
     fun `settings model clamps out-of-range values to safe bounds`() {
+        val defaultSettings = TapLockSettings()
+        assertEquals(600, defaultSettings.clampedLockScreenWakeGraceMs)
+
         val extremeLow = TapLockSettings(
             doubleTapTimeoutMs = 20,
+            lockScreenWakeGraceMs = -100,
             preLockBlackoutDelayMs = -50,
             postLockHoldDurationMs = 10
         )
         assertEquals(150, extremeLow.clampedDoubleTapTimeoutMs)
+        assertEquals(0, extremeLow.clampedLockScreenWakeGraceMs)
         assertEquals(0, extremeLow.clampedPreLockBlackoutDelayMs)
         assertEquals(100, extremeLow.clampedPostLockHoldDurationMs)
 
         val extremeHigh = TapLockSettings(
             doubleTapTimeoutMs = 9999,
+            lockScreenWakeGraceMs = 5000,
             preLockBlackoutDelayMs = 500,
             postLockHoldDurationMs = 5000
         )
         assertEquals(500, extremeHigh.clampedDoubleTapTimeoutMs)
+        assertEquals(1500, extremeHigh.clampedLockScreenWakeGraceMs)
         assertEquals(100, extremeHigh.clampedPreLockBlackoutDelayMs)
         assertEquals(1000, extremeHigh.clampedPostLockHoldDurationMs)
     }
@@ -510,6 +517,8 @@ class PixelTapLockUnitTest {
 
     @Test
     fun `AOD wake transition grace period blocks double-tap to wake from turning screen back off during transition`() {
+        assertEquals(600L, BlankSpaceHitTester.SCREEN_WAKE_TRANSITION_GRACE_MS)
+
         // No wake recorded yet -> not in grace period
         assertFalse(
             BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
@@ -542,27 +551,94 @@ class PixelTapLockUnitTest {
             )
         )
 
-        // Tap at end of 1000ms AOD-to-Lock-Screen transition window -> blocked
+        // Tap at end of default 600ms AOD-to-Lock-Screen transition window -> blocked
         assertTrue(
+            BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
+                tapUptimeMillis = 5600L,
+                lastScreenWakeUptimeMillis = wakeTime
+            )
+        )
+
+        // Tap after Lock Screen has finished default 600ms transition (> 600ms after wake) -> allowed
+        assertFalse(
+            BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
+                tapUptimeMillis = 5601L,
+                lastScreenWakeUptimeMillis = wakeTime
+            )
+        )
+        assertFalse(
             BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
                 tapUptimeMillis = 6000L,
                 lastScreenWakeUptimeMillis = wakeTime
             )
         )
 
-        // Tap after Lock Screen has finished transitioning (> 1000ms after wake) -> allowed
-        assertFalse(
+        // Custom slider values: 0ms still blocks pre-wake/at-wake taps (<= wakeTime) but allows post-wake taps immediately
+        assertTrue(
             BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
-                tapUptimeMillis = 6001L,
-                lastScreenWakeUptimeMillis = wakeTime
+                tapUptimeMillis = 4985L,
+                lastScreenWakeUptimeMillis = wakeTime,
+                gracePeriodMs = 0L
+            )
+        )
+        assertTrue(
+            BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
+                tapUptimeMillis = 5000L,
+                lastScreenWakeUptimeMillis = wakeTime,
+                gracePeriodMs = 0L
             )
         )
         assertFalse(
             BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
-                tapUptimeMillis = 6500L,
-                lastScreenWakeUptimeMillis = wakeTime
+                tapUptimeMillis = 5001L,
+                lastScreenWakeUptimeMillis = wakeTime,
+                gracePeriodMs = 0L
             )
         )
+        assertFalse(
+            BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
+                tapUptimeMillis = 5050L,
+                lastScreenWakeUptimeMillis = wakeTime,
+                gracePeriodMs = 0L
+            )
+        )
+
+        // Custom slider value: 350ms blocks at 5350L and allows at 5351L
+        assertTrue(
+            BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
+                tapUptimeMillis = 5350L,
+                lastScreenWakeUptimeMillis = wakeTime,
+                gracePeriodMs = 350L
+            )
+        )
+        assertFalse(
+            BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
+                tapUptimeMillis = 5351L,
+                lastScreenWakeUptimeMillis = wakeTime,
+                gracePeriodMs = 350L
+            )
+        )
+
+        // Custom slider value: 1200ms blocks at 6200L and allows at 6201L
+        assertTrue(
+            BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
+                tapUptimeMillis = 6200L,
+                lastScreenWakeUptimeMillis = wakeTime,
+                gracePeriodMs = 1200L
+            )
+        )
+        assertFalse(
+            BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
+                tapUptimeMillis = 6201L,
+                lastScreenWakeUptimeMillis = wakeTime,
+                gracePeriodMs = 1200L
+            )
+        )
+
+        // effectiveWakeGraceMs applies slider value on Lock Screen and 0L on Home Screen
+        val customSettings = TapLockSettings(lockScreenWakeGraceMs = 900)
+        assertEquals(900L, customSettings.effectiveWakeGraceMs(isKeyguardLocked = true))
+        assertEquals(0L, customSettings.effectiveWakeGraceMs(isKeyguardLocked = false))
     }
 
     @Test
@@ -755,9 +831,9 @@ class PixelTapLockUnitTest {
     }
 
     @Test
-    fun `BuildConfig reflects version 1_0_2 and versionCode 3`() {
-        assertEquals(3, BuildConfig.VERSION_CODE)
-        assertEquals("1.0.2", BuildConfig.VERSION_NAME)
+    fun `BuildConfig reflects version 1_0_3 and versionCode 4`() {
+        assertEquals(4, BuildConfig.VERSION_CODE)
+        assertEquals("1.0.3", BuildConfig.VERSION_NAME)
         assertEquals("com.pixeltaplock", BuildConfig.APPLICATION_ID)
     }
 }
