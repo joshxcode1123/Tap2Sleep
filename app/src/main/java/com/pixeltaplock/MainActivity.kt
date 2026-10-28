@@ -251,6 +251,9 @@ fun PixelTapLockSettingsScreen(
                 onToggleSimulatePowerButton = { enabled ->
                     coroutineScope.launch { repository.setSimulatePowerButton(enabled) }
                 },
+                onFadeDurationChange = { durationMs ->
+                    coroutineScope.launch { repository.setFadeToBlackDurationMs(durationMs) }
+                },
                 onToggleFlickerProtection = { enabled ->
                     coroutineScope.launch { repository.setEnableFlickerProtection(enabled) }
                 },
@@ -572,11 +575,15 @@ private fun FlickerProtectionCard(
     hardwareWidthPx: Int,
     hardwareHeightPx: Int,
     onToggleSimulatePowerButton: (Boolean) -> Unit,
+    onFadeDurationChange: (Int) -> Unit,
     onToggleFlickerProtection: (Boolean) -> Unit,
     onToggleLockScreenFlickerProtection: (Boolean) -> Unit,
     onPreLockDelayChange: (Int) -> Unit,
     onPostLockHoldChange: (Int) -> Unit
 ) {
+    var fadeDurationSlider by remember(settings.clampedFadeToBlackDurationMs) {
+        mutableStateOf(settings.clampedFadeToBlackDurationMs.toFloat())
+    }
     var preDelaySlider by remember(settings.clampedPreLockBlackoutDelayMs) {
         mutableStateOf(settings.clampedPreLockBlackoutDelayMs.toFloat())
     }
@@ -623,6 +630,42 @@ private fun FlickerProtectionCard(
                 checked = settings.simulatePowerButton,
                 onCheckedChange = onToggleSimulatePowerButton
             )
+
+            AnimatedVisibility(visible = settings.simulatePowerButton) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Fade to Black Speed",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "${fadeDurationSlider.roundToInt()} ms",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Text(
+                        text = "Controls how quickly and smoothly the Home Screen snapshot fades into black during turn-off (100ms – 800ms, default 250ms)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Slider(
+                        value = fadeDurationSlider,
+                        onValueChange = { fadeDurationSlider = it },
+                        onValueChangeFinished = {
+                            onFadeDurationChange(fadeDurationSlider.roundToInt())
+                        },
+                        valueRange = TapLockSettings.MIN_FADE_TO_BLACK_DURATION_MS.toFloat()..TapLockSettings.MAX_FADE_TO_BLACK_DURATION_MS.toFloat()
+                    )
+                }
+            }
 
             HorizontalDivider()
 

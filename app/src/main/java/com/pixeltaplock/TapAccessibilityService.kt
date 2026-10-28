@@ -78,12 +78,26 @@ class TapAccessibilityService : AccessibilityService() {
     private var lastScreenWakeUptimeMillis: Long = 0L
 
     @Volatile
+    private var lastUserPresentUptimeMillis: Long = 0L
+
+    @Volatile
     private var lastObservedDisplayState: Int = Display.STATE_ON
 
     @Volatile
     private var lastObservedInteractive: Boolean = true
 
     private var isWakeTrackingRegistered = false
+
+    private fun isDeviceKeyguardLocked(nowUptime: Long): Boolean {
+        if (lastUserPresentUptimeMillis > 0L && (nowUptime - lastUserPresentUptimeMillis) < UNLOCK_TRANSITION_WINDOW_MS) {
+            return false
+        }
+        return try {
+            keyguardManager.isKeyguardLocked
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     private val serviceDisplayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) = Unit
@@ -100,7 +114,14 @@ class TapAccessibilityService : AccessibilityService() {
         override fun onReceive(ctx: Context?, intent: Intent?) {
             val nowUptime = SystemClock.uptimeMillis()
             when (intent?.action) {
+                Intent.ACTION_USER_PRESENT -> {
+                    lastUserPresentUptimeMillis = nowUptime
+                    lastScreenWakeUptimeMillis = 0L
+                    firstOutsideTap = null
+                    cancelPendingDoubleTapLock()
+                }
                 Intent.ACTION_SCREEN_ON -> {
+                    lastUserPresentUptimeMillis = 0L
                     val wasAwakeBefore = BlankSpaceHitTester.isDisplayFullyAwake(
                         displayState = lastObservedDisplayState,
                         isInteractive = lastObservedInteractive
@@ -114,6 +135,7 @@ class TapAccessibilityService : AccessibilityService() {
                 }
                 Intent.ACTION_SCREEN_OFF -> {
                     lastObservedInteractive = false
+                    lastUserPresentUptimeMillis = 0L
                     firstOutsideTap = null
                     cancelPendingDoubleTapLock()
                 }
@@ -174,9 +196,17 @@ class TapAccessibilityService : AccessibilityService() {
         )
 
         if (isInteractiveEvent) {
-            lastInteractiveEventUptimeMillis = SystemClock.uptimeMillis()
-            firstOutsideTap = null
-            cancelPendingDoubleTapLock()
+            val now = SystemClock.uptimeMillis()
+            val isSystemUiUnlockTransition = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+                event.packageName == BlankSpaceHitTester.SYSTEM_UI_PACKAGE &&
+                lastUserPresentUptimeMillis > 0L &&
+                (now - lastUserPresentUptimeMillis) < UNLOCK_TRANSITION_WINDOW_MS
+
+            if (!isSystemUiUnlockTransition) {
+                lastInteractiveEventUptimeMillis = now
+                firstOutsideTap = null
+                cancelPendingDoubleTapLock()
+            }
         }
     }
 
@@ -204,6 +234,7 @@ class TapAccessibilityService : AccessibilityService() {
         flickerController = null
         cachedAllowedLauncherPackages = null
         lastLauncherResolveUptimeMs = 0L
+        lastUserPresentUptimeMillis = 0L
         if (instance === this) {
             instance = null
         }
@@ -220,6 +251,7 @@ class TapAccessibilityService : AccessibilityService() {
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_ON)
                 addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_USER_PRESENT)
             }
             registerReceiver(serviceScreenWakeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
             isWakeTrackingRegistered = true
@@ -363,11 +395,7 @@ class TapAccessibilityService : AccessibilityService() {
         }
 
         val settings = currentSettings
-        val isLocked = try {
-            keyguardManager.isKeyguardLocked
-        } catch (_: Exception) {
-            false
-        }
+        val isLocked = isDeviceKeyguardLocked(nowUptime)
         val wakeGraceMs = settings.effectiveWakeGraceMs(isKeyguardLocked = isLocked)
 
         // Ignore taps occurring during the AOD / screen-wake transition to the normal Lock Screen
@@ -460,11 +488,7 @@ class TapAccessibilityService : AccessibilityService() {
                 return@Runnable
             }
             val debounceSettings = currentSettings
-            val debounceIsLocked = try {
-                keyguardManager.isKeyguardLocked
-            } catch (_: Exception) {
-                false
-            }
+            val debounceIsLocked = isDeviceKeyguardLocked(debounceNowUptime)
             val debounceWakeGraceMs = debounceSettings.effectiveWakeGraceMs(
                 isKeyguardLocked = debounceIsLocked
             )
@@ -488,7 +512,9 @@ class TapAccessibilityService : AccessibilityService() {
             if (interrupted) {
                 return@Runnable
             }
-            if (!isEligibleScreenContext(debounceSettings, allowTransitionCandidate = false)) {
+            val isRecentUnlock = lastUserPresentUptimeMillis > 0L &&
+                (debounceNowUptime - lastUserPresentUptimeMillis) < UNLOCK_TRANSITION_WINDOW_MS
+            if (!isEligibleScreenContext(debounceSettings, allowTransitionCandidate = isRecentUnlock)) {
                 return@Runnable
             }
             executeFlickerProtectedLock()
@@ -557,7 +583,8 @@ class TapAccessibilityService : AccessibilityService() {
         val allowedLaunchers = resolveAllowedLauncherPackages()
         val maxBounds = windowManager.maximumWindowMetrics.bounds
 
-        val isLocked = keyguardManager.isKeyguardLocked
+        val now = SystemClock.uptimeMillis()
+        val isLocked = isDeviceKeyguardLocked(now)
         if (isLocked) {
             if (!settings.enableLockScreen) {
                 return false
@@ -586,12 +613,30 @@ class TapAccessibilityService : AccessibilityService() {
             return false
         }
 
+        val isRecentUnlock = lastUserPresentUptimeMillis > 0L &&
+            (now - lastUserPresentUptimeMillis) < UNLOCK_TRANSITION_WINDOW_MS
+
+        val effectiveActiveRootPkg = if (isRecentUnlock && activeRootPkg == BlankSpaceHitTester.SYSTEM_UI_PACKAGE) {
+            val hasObscuringShade = windowsList?.any { win ->
+                win.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_SYSTEM &&
+                    maxBounds.height() > 0 &&
+                    (win.isFocused || win.isActive || {
+                        val r = Rect()
+                        win.getBoundsInScreen(r)
+                        (r.bottom - r.top) > (maxBounds.height() * 0.35f).toInt()
+                    }())
+            } ?: false
+            if (!hasObscuringShade) null else activeRootPkg
+        } else {
+            activeRootPkg
+        }
+
         return BlankSpaceHitTester.isHomeWorkspaceUnobscured(
             windows = windowsList,
-            activeRootPackageName = activeRootPkg,
+            activeRootPackageName = effectiveActiveRootPkg,
             allowedLauncherPackages = allowedLaunchers,
             screenHeightPx = maxBounds.height(),
-            allowTransitionCandidate = allowTransitionCandidate
+            allowTransitionCandidate = allowTransitionCandidate || isRecentUnlock
         )
     }
 
@@ -761,11 +806,7 @@ class TapAccessibilityService : AccessibilityService() {
         cancelPendingDoubleTapLock()
         firstOutsideTap = null
         val settings = currentSettings
-        val isLocked = try {
-            keyguardManager.isKeyguardLocked
-        } catch (_: Exception) {
-            false
-        }
+        val isLocked = isDeviceKeyguardLocked(SystemClock.uptimeMillis())
 
         val useSnapshot = settings.shouldUseSnapshotOverlay(isKeyguardLocked = isLocked)
         val useFlicker = settings.shouldUseFlickerProtection(isKeyguardLocked = isLocked)
@@ -791,6 +832,7 @@ class TapAccessibilityService : AccessibilityService() {
                 controller.executeLockWithOverlay(
                     showOverlay = showOverlay,
                     snapshotBitmap = snapshotBitmap,
+                    fadeDurationMs = settings.clampedFadeToBlackDurationMs,
                     preLockDelayMs = settings.clampedPreLockBlackoutDelayMs,
                     postLockHoldMs = settings.clampedPostLockHoldDurationMs,
                     performLockAction = performLock
@@ -800,6 +842,7 @@ class TapAccessibilityService : AccessibilityService() {
             controller.executeLockWithOverlay(
                 showOverlay = useFlicker,
                 snapshotBitmap = null,
+                fadeDurationMs = settings.clampedFadeToBlackDurationMs,
                 preLockDelayMs = settings.clampedPreLockBlackoutDelayMs,
                 postLockHoldMs = settings.clampedPostLockHoldDurationMs,
                 performLockAction = performLock
@@ -808,6 +851,7 @@ class TapAccessibilityService : AccessibilityService() {
     }
 
     companion object {
+        const val UNLOCK_TRANSITION_WINDOW_MS = 2000L
         const val SCREENSHOT_TIMEOUT_MS = 150L
         const val LAUNCHER_CACHE_TTL_MS = 5000L
         const val PIXEL_LAUNCHER_PACKAGE = "com.google.android.apps.nexuslauncher"

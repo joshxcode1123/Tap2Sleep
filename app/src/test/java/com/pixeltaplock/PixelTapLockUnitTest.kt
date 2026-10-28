@@ -868,6 +868,18 @@ class PixelTapLockUnitTest {
             1200L,
             FlickerProtectionOverlayController.computeInitialHardSafetyTimeoutMs(0L, 100L)
         )
+
+        // With fade-to-black duration: 24ms pre-delay + 400ms post-hold + 250ms fade + 500ms slack = 1174ms, bounded by 1200ms
+        assertEquals(
+            1200L,
+            FlickerProtectionOverlayController.computeInitialHardSafetyTimeoutMs(24L, 400L, 250L)
+        )
+
+        // Long fade duration: 100ms pre-delay + 1000ms post-hold + 800ms fade + 500ms slack = 2400ms
+        assertEquals(
+            2400L,
+            FlickerProtectionOverlayController.computeInitialHardSafetyTimeoutMs(100L, 1000L, 800L)
+        )
     }
 
     @Test
@@ -875,24 +887,28 @@ class PixelTapLockUnitTest {
         val outOfBoundsSettings = TapLockSettings(
             doubleTapTimeoutMs = 1000,
             lockScreenWakeGraceMs = 5000,
+            fadeToBlackDurationMs = 2500,
             preLockBlackoutDelayMs = 500,
             postLockHoldDurationMs = 2000
         )
 
         assertEquals(TapLockSettings.MAX_DOUBLE_TAP_TIMEOUT_MS, outOfBoundsSettings.clampedDoubleTapTimeoutMs)
         assertEquals(TapLockSettings.MAX_LOCK_SCREEN_WAKE_GRACE_MS, outOfBoundsSettings.clampedLockScreenWakeGraceMs)
+        assertEquals(TapLockSettings.MAX_FADE_TO_BLACK_DURATION_MS, outOfBoundsSettings.clampedFadeToBlackDurationMs)
         assertEquals(TapLockSettings.MAX_PRE_LOCK_DELAY_MS, outOfBoundsSettings.clampedPreLockBlackoutDelayMs)
         assertEquals(TapLockSettings.MAX_POST_LOCK_HOLD_MS, outOfBoundsSettings.clampedPostLockHoldDurationMs)
 
         val negativeSettings = TapLockSettings(
             doubleTapTimeoutMs = -10,
             lockScreenWakeGraceMs = -50,
+            fadeToBlackDurationMs = -200,
             preLockBlackoutDelayMs = -100,
             postLockHoldDurationMs = -500
         )
 
         assertEquals(TapLockSettings.MIN_DOUBLE_TAP_TIMEOUT_MS, negativeSettings.clampedDoubleTapTimeoutMs)
         assertEquals(TapLockSettings.MIN_LOCK_SCREEN_WAKE_GRACE_MS, negativeSettings.clampedLockScreenWakeGraceMs)
+        assertEquals(TapLockSettings.MIN_FADE_TO_BLACK_DURATION_MS, negativeSettings.clampedFadeToBlackDurationMs)
         assertEquals(TapLockSettings.MIN_PRE_LOCK_DELAY_MS, negativeSettings.clampedPreLockBlackoutDelayMs)
         assertEquals(TapLockSettings.MIN_POST_LOCK_HOLD_MS, negativeSettings.clampedPostLockHoldDurationMs)
     }
@@ -917,9 +933,9 @@ class PixelTapLockUnitTest {
     }
 
     @Test
-    fun `BuildConfig reflects version 1_0_7 and versionCode 8`() {
-        assertEquals(8, BuildConfig.VERSION_CODE)
-        assertEquals("1.0.7", BuildConfig.VERSION_NAME)
+    fun `BuildConfig reflects version 1_0_8 and versionCode 9`() {
+        assertEquals(9, BuildConfig.VERSION_CODE)
+        assertEquals("1.0.8", BuildConfig.VERSION_NAME)
         assertEquals("com.pixeltaplock", BuildConfig.APPLICATION_ID)
     }
 
@@ -1514,6 +1530,104 @@ class PixelTapLockUnitTest {
                 ownPackageName = ownPkg,
                 ownWidgetContentDescription = ownWidgetDesc,
                 allowedLauncherPackages = allowedLaunchers
+            )
+        )
+    }
+
+    @Test
+    fun `fade to black duration defaults to 250ms and clamps between 100ms and 800ms`() {
+        val defaultSettings = TapLockSettings()
+        assertEquals(250, defaultSettings.fadeToBlackDurationMs)
+        assertEquals(250, defaultSettings.clampedFadeToBlackDurationMs)
+
+        val fastFade = defaultSettings.copy(fadeToBlackDurationMs = 120)
+        assertEquals(120, fastFade.clampedFadeToBlackDurationMs)
+
+        val clampedUnder = defaultSettings.copy(fadeToBlackDurationMs = 50)
+        assertEquals(TapLockSettings.MIN_FADE_TO_BLACK_DURATION_MS, clampedUnder.clampedFadeToBlackDurationMs)
+
+        val clampedOver = defaultSettings.copy(fadeToBlackDurationMs = 1200)
+        assertEquals(TapLockSettings.MAX_FADE_TO_BLACK_DURATION_MS, clampedOver.clampedFadeToBlackDurationMs)
+    }
+
+    @Test
+    fun `rapid wake from AOD to fingerprint unlock flow does not impose lock screen grace period on Home Screen`() {
+        val settings = TapLockSettings(
+            enableHomeScreen = true,
+            enableLockScreen = true,
+            lockScreenWakeGraceMs = 600
+        )
+
+        // Wake occurs at 5000L. Device wakes from AOD.
+        val wakeUptime = 5000L
+
+        // On Lock Screen (isKeyguardLocked = true), 600ms grace period applies
+        assertEquals(600L, settings.effectiveWakeGraceMs(isKeyguardLocked = true))
+        assertTrue(
+            BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
+                tapUptimeMillis = 5300L,
+                lastScreenWakeUptimeMillis = wakeUptime,
+                gracePeriodMs = 600L
+            )
+        )
+
+        // User performs fingerprint unlock: isKeyguardLocked becomes false.
+        // On Home Screen, effective grace delay is 0L
+        assertEquals(0L, settings.effectiveWakeGraceMs(isKeyguardLocked = false))
+
+        // When screen wake timestamp is cleared on unlock (0L), grace period check returns false immediately
+        assertFalse(
+            BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
+                tapUptimeMillis = 5300L,
+                lastScreenWakeUptimeMillis = 0L,
+                gracePeriodMs = 0L
+            )
+        )
+
+        // Even with wake timestamp retained, any post-wake tap (> wakeUptime) is NOT within grace period when grace is 0L
+        assertFalse(
+            BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
+                tapUptimeMillis = 5300L,
+                lastScreenWakeUptimeMillis = wakeUptime,
+                gracePeriodMs = 0L
+            )
+        )
+    }
+
+    @Test
+    fun `Home Screen workspace with dismissing SystemUI window allows candidate when launcher is visible and no shade is open`() {
+        val allowedLaunchers = setOf(
+            "com.google.android.apps.nexuslauncher",
+            "com.android.launcher3"
+        )
+
+        // Transitioning window state right after fingerprint unlock:
+        // SystemUI lock screen is fading out, launcher window is visible, no shade expanded (> 35%), no other app
+        val visibleLauncher = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = false,
+            isFocused = false,
+            packageName = "com.google.android.apps.nexuslauncher",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2992)
+        )
+        val navBar = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_SYSTEM,
+            isActive = false,
+            isFocused = false,
+            packageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 2866, 1344, 2992)
+        )
+
+        val unlockWindows = listOf(visibleLauncher, navBar)
+
+        // When allowTransitionCandidate is true (post-unlock transition), candidate is accepted
+        assertTrue(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = unlockWindows,
+                activeRootPackageName = null,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = true
             )
         )
     }

@@ -23,6 +23,7 @@ data class TapLockSettings(
     val doubleTapTimeoutMs: Int = DEFAULT_DOUBLE_TAP_TIMEOUT_MS,
     val lockScreenWakeGraceMs: Int = DEFAULT_LOCK_SCREEN_WAKE_GRACE_MS,
     val simulatePowerButton: Boolean = DEFAULT_SIMULATE_POWER_BUTTON,
+    val fadeToBlackDurationMs: Int = DEFAULT_FADE_TO_BLACK_DURATION_MS,
     val enableFlickerProtection: Boolean = DEFAULT_ENABLE_FLICKER_PROTECTION,
     val enableLockScreenFlickerProtection: Boolean = DEFAULT_ENABLE_LOCK_SCREEN_FLICKER_PROTECTION,
     val preLockBlackoutDelayMs: Int = DEFAULT_PRE_LOCK_DELAY_MS,
@@ -35,6 +36,12 @@ data class TapLockSettings(
         get() = lockScreenWakeGraceMs.coerceIn(
             MIN_LOCK_SCREEN_WAKE_GRACE_MS,
             MAX_LOCK_SCREEN_WAKE_GRACE_MS
+        )
+
+    val clampedFadeToBlackDurationMs: Int
+        get() = fadeToBlackDurationMs.coerceIn(
+            MIN_FADE_TO_BLACK_DURATION_MS,
+            MAX_FADE_TO_BLACK_DURATION_MS
         )
 
     val clampedPreLockBlackoutDelayMs: Int
@@ -96,6 +103,10 @@ data class TapLockSettings(
         const val DEFAULT_LOCK_SCREEN_WAKE_GRACE_MS = 600
 
         const val DEFAULT_SIMULATE_POWER_BUTTON = true
+        const val MIN_FADE_TO_BLACK_DURATION_MS = 100
+        const val MAX_FADE_TO_BLACK_DURATION_MS = 800
+        const val DEFAULT_FADE_TO_BLACK_DURATION_MS = 250
+
         const val DEFAULT_ENABLE_FLICKER_PROTECTION = false
         const val DEFAULT_ENABLE_LOCK_SCREEN_FLICKER_PROTECTION = false
 
@@ -117,6 +128,7 @@ class TapLockPreferencesRepository(private val dataStore: DataStore<Preferences>
         val DOUBLE_TAP_TIMEOUT_MS = intPreferencesKey("double_tap_timeout_ms")
         val LOCK_SCREEN_WAKE_GRACE_MS = intPreferencesKey("lock_screen_wake_grace_ms")
         val SIMULATE_POWER_BUTTON = booleanPreferencesKey("simulate_power_button")
+        val FADE_TO_BLACK_DURATION_MS = intPreferencesKey("fade_to_black_duration_ms")
         val ENABLE_FLICKER_PROTECTION = booleanPreferencesKey("enable_flicker_protection")
         val ENABLE_LOCK_SCREEN_FLICKER_PROTECTION =
             booleanPreferencesKey("enable_lock_screen_flicker_protection")
@@ -152,6 +164,12 @@ class TapLockPreferencesRepository(private val dataStore: DataStore<Preferences>
                     ),
                 simulatePowerButton = prefs[Keys.SIMULATE_POWER_BUTTON]
                     ?: TapLockSettings.DEFAULT_SIMULATE_POWER_BUTTON,
+                fadeToBlackDurationMs = (prefs[Keys.FADE_TO_BLACK_DURATION_MS]
+                    ?: TapLockSettings.DEFAULT_FADE_TO_BLACK_DURATION_MS)
+                    .coerceIn(
+                        TapLockSettings.MIN_FADE_TO_BLACK_DURATION_MS,
+                        TapLockSettings.MAX_FADE_TO_BLACK_DURATION_MS
+                    ),
                 enableFlickerProtection = prefs[Keys.ENABLE_FLICKER_PROTECTION]
                     ?: TapLockSettings.DEFAULT_ENABLE_FLICKER_PROTECTION,
                 enableLockScreenFlickerProtection = prefs[Keys.ENABLE_LOCK_SCREEN_FLICKER_PROTECTION]
@@ -199,6 +217,15 @@ class TapLockPreferencesRepository(private val dataStore: DataStore<Preferences>
 
     suspend fun setSimulatePowerButton(enabled: Boolean) {
         dataStore.edit { it[Keys.SIMULATE_POWER_BUTTON] = enabled }
+    }
+
+    suspend fun setFadeToBlackDurationMs(durationMs: Int) {
+        dataStore.edit {
+            it[Keys.FADE_TO_BLACK_DURATION_MS] = durationMs.coerceIn(
+                TapLockSettings.MIN_FADE_TO_BLACK_DURATION_MS,
+                TapLockSettings.MAX_FADE_TO_BLACK_DURATION_MS
+            )
+        }
     }
 
     suspend fun setEnableFlickerProtection(enabled: Boolean) {

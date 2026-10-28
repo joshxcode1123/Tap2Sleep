@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/joshxcode1123/Tap2Sleep/actions/workflows/build.yml"><img src="https://github.com/joshxcode1123/Tap2Sleep/actions/workflows/build.yml/badge.svg" alt="Build & Test" /></a>
-  <a href="https://github.com/joshxcode1123/Tap2Sleep/releases/latest"><img src="https://img.shields.io/badge/Release-v1.0.7-blue.svg?logo=github" alt="Latest Release" /></a>
+  <a href="https://github.com/joshxcode1123/Tap2Sleep/releases/latest"><img src="https://img.shields.io/badge/Release-v1.0.8-blue.svg?logo=github" alt="Latest Release" /></a>
   <img src="https://img.shields.io/badge/Platform-Android%2012%E2%80%9315%2B-3DDC84?logo=android&logoColor=white" alt="Platform" />
   <img src="https://img.shields.io/badge/Designed%20For-Google%20Pixel-4285F4?logo=google&logoColor=white" alt="Designed for Pixel" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-orange.svg" alt="License" /></a>
@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="https://github.com/joshxcode1123/Tap2Sleep/releases/latest">
-    <img src="https://img.shields.io/badge/⬇%EF%B8%8F_Download_APK-Tap2Sleep--v1.0.7.apk-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="Download APK" />
+    <img src="https://img.shields.io/badge/⬇%EF%B8%8F_Download_APK-Tap2Sleep--v1.0.8.apk-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="Download APK" />
   </a>
 </p>
 
@@ -31,8 +31,8 @@ Replicates the physical Power Button screen-off behavior by allowing users to **
   - Queries physical hardware panel bounds via `WindowManager.maximumWindowMetrics` in real time (never cached) across dynamic resolution switches (FHD+ $\leftrightarrow$ QHD+ 1344×2992 / 1440×3120).
   - Oversized coverage margin (+200px) completely bypassing status bar, gesture navigation insets, camera cutouts, and rounded corners.
 
-- **Power-Button Turn-Off Simulation:**
-  - When locking from the Home Screen, captures a zero-latency hardware buffer snapshot via `AccessibilityService.takeScreenshot` and presents it during the display power-down animation. The lock screen wallpaper never flashes before sleep.
+- **Power-Button Turn-Off Simulation with Smooth Fade:**
+  - When locking from the Home Screen, captures a zero-latency hardware buffer snapshot via `AccessibilityService.takeScreenshot` and performs an ultra-smooth, configurable fade-to-black animation (100ms – 800ms slider) simulating the physical power button turn-off without a harsh snap or lock screen flicker.
   - Instantly dismisses the overlay upon reaching `Display.STATE_OFF` or `Display.STATE_DOZE` so Always-On Display (AOD) is never obscured.
 
 - **Direct Lock-Screen-to-AOD Transition:**
