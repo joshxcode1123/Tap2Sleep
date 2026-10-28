@@ -1,6 +1,10 @@
-# PixelTapLock
+# Tap2Sleep for Pixel (Tap2Sleep)
 
-A production-ready, zero-dependency (pure AndroidX & Material 3) Android application for Google Pixel devices (Android 12–15+).
+<p align="center">
+  <img src="art/app_icon.jpg" width="128" height="128" alt="Tap2Sleep Icon" style="border-radius: 28px;" />
+</p>
+
+A production-ready, zero-dependency (pure AndroidX & Material 3) Android application for Google Pixel devices (Android 12–15+). Shows as **Tap2Sleep** in your App Drawer and **Tap2Sleep for Pixel** in system settings.
 
 Replicates the physical Power Button screen-off behavior by allowing users to **double-tap blank space** on the **Home Screen** or **Lock Screen** to instantly lock the display while **keeping biometric authentication (Fingerprint & Face Unlock) fully intact**.
 
@@ -51,8 +55,8 @@ Prerequisites: JDK 17 or 21 and Android SDK Platform 35.
 
 ```bash
 # Clone the repository
-git clone https://github.com/<YOUR_USERNAME>/PixelTapLock.git
-cd PixelTapLock
+git clone https://github.com/<YOUR_USERNAME>/Tap2Sleep.git
+cd Tap2Sleep
 
 # Run tests
 ./gradlew testDebugUnitTest

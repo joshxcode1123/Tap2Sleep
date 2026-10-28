@@ -1,110 +1,58 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Outer Concentric Ripple Ring -->
-    <path
-        android:strokeColor="#5B7BA8"
-        android:strokeWidth="2.5"
-        android:strokeAlpha="0.65"
-        android:fillColor="#00000000"
-        android:pathData="M 48,22 A 24,24 0 1 1 47.9,22 Z" />
-
-    <!-- Inner Concentric Ring -->
+    <!-- Subtle Full Outer Wavy Ripple (Radius ~34dp with 8 smooth harmonic crests) -->
     <path
         android:strokeColor="#A8C7FA"
-        android:strokeWidth="2.5"
-        android:strokeAlpha="0.9"
+        android:strokeWidth="1.5"
+        android:strokeAlpha="0.30"
         android:fillColor="#00000000"
-        android:pathData="M 48,34 A 12,12 0 1 1 47.9,34 Z" />
+        android:pathData="M 90.80,54.00 C 90.80,56.41 89.22,58.74 87.35,60.63 C 85.47,62.53 83.61,64.05 82.83,65.94 C 82.04,67.83 82.29,70.22 82.27,72.89 C 82.25,75.55 81.72,78.32 80.02,80.02 C 78.32,81.72 75.55,82.25 72.89,82.27 C 70.22,82.29 67.83,82.04 65.94,82.83 C 64.05,83.61 62.53,85.47 60.63,87.35 C 58.74,89.22 56.41,90.80 54.00,90.80 C 51.59,90.80 49.26,89.22 47.37,87.35 C 45.47,85.47 43.95,83.61 42.06,82.83 C 40.17,82.04 37.78,82.29 35.11,82.27 C 32.45,82.25 29.68,81.72 27.98,80.02 C 26.28,78.32 25.75,75.55 25.73,72.89 C 25.71,70.22 25.96,67.83 25.17,65.94 C 24.39,64.05 22.53,62.53 20.65,60.63 C 18.78,58.74 17.20,56.41 17.20,54.00 C 17.20,51.59 18.78,49.26 20.65,47.37 C 22.53,45.47 24.39,43.95 25.17,42.06 C 25.96,40.17 25.71,37.78 25.73,35.11 C 25.75,32.45 26.28,29.68 27.98,27.98 C 29.68,26.28 32.45,25.75 35.11,25.73 C 37.78,25.71 40.17,25.96 42.06,25.17 C 43.95,24.39 45.47,22.53 47.37,20.65 C 49.26,18.78 51.59,17.20 54.00,17.20 C 56.41,17.20 58.74,18.78 60.63,20.65 C 62.53,22.53 64.05,24.39 65.94,25.17 C 67.83,25.96 70.22,25.71 72.89,25.73 C 75.55,25.75 78.32,26.28 80.02,27.98 C 81.72,29.68 82.25,32.45 82.27,35.11 C 82.29,37.78 82.04,40.17 82.83,42.06 C 83.61,43.95 85.47,45.47 87.35,47.37 C 89.22,49.26 90.80,51.59 90.80,54.00 Z" />
 
-    <!-- Center Pulse Dot -->
+    <!-- Main Outer Ring (Radius 26dp outer, 20dp inner) -->
+    <path
+        android:fillColor="#A8C7FA"
+        android:pathData="M54,28A26,26 0,1 1,28 54A26,26 0,0 1,54 28M54,34A20,20 0,1 0,74 54A20,20 0,0 0,54 34Z" />
+
+    <!-- Intermediate Blank-Space Wavy Ripple (Radius ~16dp with 8 smooth harmonic crests, Under Finger) -->
+    <path
+        android:strokeColor="#A8C7FA"
+        android:strokeWidth="1.5"
+        android:strokeAlpha="0.55"
+        android:fillColor="#00000000"
+        android:pathData="M 72.00,54.00 C 72.00,55.18 70.92,56.30 69.69,57.12 C 68.46,57.94 67.28,58.51 66.93,59.36 C 66.58,60.20 67.01,61.44 67.30,62.89 C 67.59,64.34 67.56,65.89 66.73,66.73 C 65.89,67.56 64.34,67.59 62.89,67.30 C 61.44,67.01 60.20,66.58 59.36,66.93 C 58.51,67.28 57.94,68.46 57.12,69.69 C 56.30,70.92 55.18,72.00 54.00,72.00 C 52.82,72.00 51.70,70.92 50.88,69.69 C 50.06,68.46 49.49,67.28 48.64,66.93 C 47.80,66.58 46.56,67.01 45.11,67.30 C 43.66,67.59 42.11,67.56 41.27,66.73 C 40.44,65.89 40.41,64.34 40.70,62.89 C 40.99,61.44 41.42,60.20 41.07,59.36 C 40.72,58.51 39.54,57.94 38.31,57.12 C 37.08,56.30 36.00,55.18 36.00,54.00 C 36.00,52.82 37.08,51.70 38.31,50.88 C 39.54,50.06 40.72,49.49 41.07,48.64 C 41.42,47.80 40.99,46.56 40.70,45.11 C 40.41,43.66 40.44,42.11 41.27,41.27 C 42.11,40.44 43.66,40.41 45.11,40.70 C 46.56,40.99 47.80,41.42 48.64,41.07 C 49.49,40.72 50.06,39.54 50.88,38.31 C 51.70,37.08 52.82,36.00 54.00,36.00 C 55.18,36.00 56.30,37.08 57.12,38.31 C 57.94,39.54 58.51,40.72 59.36,41.07 C 60.20,41.42 61.44,40.99 62.89,40.70 C 64.34,40.41 65.89,40.44 66.73,41.27 C 67.56,42.11 67.59,43.66 67.30,45.11 C 67.01,46.56 66.58,47.80 66.93,48.64 C 67.28,49.49 68.46,50.06 69.69,50.88 C 70.92,51.70 72.00,52.82 72.00,54.00 Z" />
+
+    <!-- Center Filled Button Circle (Radius 12dp) -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M 48,42 A 4,4 0 1 1 47.9,42 Z" />
+        android:pathData="M54,42A12,12 0,1 1,42 54A12,12 0,0 1,54 42Z" />
 
-    <!-- Pixelated 2D Splash Between Rings (Google Pixel Color Palette) -->
-    <!-- Cyan / Light Blue Pixels -->
-    <path
-        android:fillColor="#70B6FF"
-        android:pathData="M 60,47 h 3 v 3 h -3 z
-                          M 31,40 h 3 v 3 h -3 z
-                          M 43,27 h 3 v 3 h -3 z
-                          M 47,60 h 3 v 3 h -3 z
-                          M 54,23 h 2.5 v 2.5 h -2.5 z" />
-
-    <!-- Vibrant Mint / Electric Accent Pixels -->
-    <path
-        android:fillColor="#68DDBA"
-        android:pathData="M 39,63 h 3 v 3 h -3 z
-                          M 65,39 h 3 v 3 h -3 z
-                          M 33,31 h 2.5 v 2.5 h -2.5 z
-                          M 60,34 h 2.5 v 2.5 h -2.5 z" />
-
-    <!-- Lavender / Soft Violet Pixels -->
-    <path
-        android:fillColor="#D0BCFF"
-        android:pathData="M 49,24 h 3 v 3 h -3 z
-                          M 25,49 h 3 v 3 h -3 z
-                          M 66,56 h 2.5 v 2.5 h -2.5 z
-                          M 34,55 h 2.5 v 2.5 h -2.5 z
-                          M 59,58 h 2.5 v 2.5 h -2.5 z" />
-
-    <!-- Highlight White Spark Pixels -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M 50,58 h 2 v 2 h -2 z
-                          M 30,53 h 2 v 2 h -2 z
-                          M 34,37 h 2 v 2 h -2 z
-                          M 46,26 h 2 v 2 h -2 z
-                          M 60,37 h 2 v 2 h -2 z" />
-
-    <!-- Extended Semi-Oval Shape (Finger Tapping From Bottom Right) -->
+    <!-- Semi-Oval Finger Coming from Bottom-Right to Press Center Circle -->
     <group
-        android:pivotX="48"
-        android:pivotY="46"
+        android:pivotX="54"
+        android:pivotY="54"
         android:rotation="-45">
 
-        <!-- Finger Drop Shadow for Material Elevation -->
+        <!-- Background Knockout Cutout for Clean Material Separation -->
         <path
-            android:fillColor="#000000"
-            android:fillAlpha="0.35"
-            android:pathData="M 40,57 v 34 h 16 v -34 a 8,8 0 0 0 -16,0 z" />
+            android:fillColor="#111827"
+            android:pathData="M 42,60 v 44 h 24 v -44 a 12,12 0 0 0 -24,0 z" />
 
-        <!-- Finger Base Capsule -->
+        <!-- Finger Semi-Oval Capsule (Wider Material 3 Shape) -->
         <path
-            android:pathData="M 41,55 v 36 h 14 v -36 a 7,7 0 0 0 -14,0 z">
-            <aapt:attr name="android:fillColor">
-                <gradient
-                    android:startX="41"
-                    android:startY="50"
-                    android:endX="55"
-                    android:endY="90"
-                    android:type="linear">
-                    <item android:color="#E2E7F3" android:offset="0.0" />
-                    <item android:color="#C5CEE0" android:offset="0.5" />
-                    <item android:color="#9AA6BE" android:offset="1.0" />
-                </gradient>
-            </aapt:attr>
-        </path>
+            android:fillColor="#D3E3FD"
+            android:pathData="M 45,62 v 42 h 18 v -42 a 9,9 0 0 0 -18,0 z" />
 
-        <!-- Fingertip Touch Contact Highlight (Material 3 Glint) -->
+        <!-- Fingertip Touch Contact Accent -->
         <path
             android:fillColor="#FFFFFF"
-            android:fillAlpha="0.85"
-            android:pathData="M 44,52 a 4,4 0 0 1 8,0 a 4,2 0 0 1 -8,0 z" />
+            android:fillAlpha="0.65"
+            android:pathData="M 49,59 a 5,4 0 0 1 10,0 a 5,2 0 0 1 -10,0 z" />
 
-        <!-- Subtle Fingernail / Knuckle Line Accent -->
-        <path
-            android:strokeColor="#FFFFFF"
-            android:strokeWidth="1.2"
-            android:strokeAlpha="0.4"
-            android:fillColor="#00000000"
-            android:pathData="M 44,61 a 4,4 0 0 0 8,0" />
     </group>
 
 </vector>

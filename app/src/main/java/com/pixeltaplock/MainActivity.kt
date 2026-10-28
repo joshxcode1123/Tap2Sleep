@@ -168,7 +168,7 @@ fun PixelTapLockSettingsScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = "PixelTapLock",
+                                text = "Tap2Sleep for Pixel",
                                 style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.Bold
                             )
@@ -275,7 +275,7 @@ fun PixelTapLockSettingsScreen(
                     if (!triggered) {
                         Toast.makeText(
                             context,
-                            "Please enable PixelTapLock in Accessibility Settings first.",
+                            "Please enable Tap2Sleep in Accessibility Settings first.",
                             Toast.LENGTH_SHORT
                         ).show()
                         openAccessibilitySettings(context)
@@ -340,7 +340,7 @@ private fun ServiceStatusCard(
                         text = if (isServiceActive) {
                             "Blank-space double-tap detection and QHD+ OLED flicker mask are running."
                         } else {
-                            "Enable PixelTapLock in Accessibility Settings to activate double-tap screen lock."
+                            "Enable Tap2Sleep in Accessibility Settings to activate double-tap screen sleep."
                         },
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -392,10 +392,10 @@ private fun ServiceStatusCard(
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = "1. Tap \"Enable Service\" above and select PixelTapLock (it may appear grayed out at first).\n" +
+                        text = "1. Tap \"Enable Service\" above and select Tap2Sleep (it may appear grayed out at first).\n" +
                             "2. Tap \"Open App Info\" below, then tap the 3-dot menu (⋮) in the top-right corner of the App Info screen.\n" +
                             "3. Select \"Allow restricted settings\" and verify with your fingerprint or PIN.\n" +
-                            "4. Return to Accessibility Settings and toggle PixelTapLock ON.",
+                            "4. Return to Accessibility Settings and toggle Tap2Sleep ON.",
                         style = MaterialTheme.typography.bodySmall
                     )
                     OutlinedButton(
@@ -433,7 +433,7 @@ private fun BatteryOptimizationWarningCard(
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = "Set PixelTapLock to Unrestricted battery usage so Android 15–17 never suspends the 1x1 touch-watcher overlay in the background.",
+                text = "Set Tap2Sleep to Unrestricted battery usage so Android 15–17 never suspends the 1x1 touch-watcher overlay in the background.",
                 style = MaterialTheme.typography.bodyMedium
             )
             FilledTonalButton(

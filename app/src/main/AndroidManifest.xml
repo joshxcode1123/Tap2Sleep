@@ -21,6 +21,7 @@
 
         <activity
             android:name=".MainActivity"
+            android:label="@string/app_launcher_name"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density"
             android:exported="true"
             android:theme="@style/Theme.PixelTapLock">

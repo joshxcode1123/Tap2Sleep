@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PixelTapLock</string>
-    <string name="accessibility_service_label">PixelTapLock Blank-Space Lock</string>
-    <string name="accessibility_service_description">Detects double-taps on empty areas of the Home Screen and Lock Screen to immediately lock your Pixel display with full QHD+ edge-to-edge OLED flicker protection while preserving fingerprint and face unlock.</string>
-    <string name="widget_label">Blank Space Double-Tap Lock</string>
-    <string name="widget_description">Resizable invisible Home Screen widget that locks your screen with OLED flicker protection when double-tapped.</string>
-    <string name="widget_content_description">Double-tap empty widget area to lock screen</string>
+    <string name="app_name">Tap2Sleep for Pixel</string>
+    <string name="app_launcher_name">Tap2Sleep</string>
+    <string name="accessibility_service_label">Tap2Sleep for Pixel Blank-Space Lock</string>
+    <string name="accessibility_service_description">Detects double-taps on empty areas of the Home Screen and Lock Screen to immediately sleep your Pixel display with smooth AOD transitions while preserving fingerprint and face unlock.</string>
+    <string name="widget_label">Tap2Sleep</string>
+    <string name="widget_description">Resizable invisible Home Screen widget that sleeps your screen when double-tapped.</string>
+    <string name="widget_content_description">Double-tap empty widget area to sleep screen</string>
 </resources>

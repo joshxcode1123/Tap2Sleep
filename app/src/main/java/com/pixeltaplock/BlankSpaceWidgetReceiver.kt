@@ -55,7 +55,7 @@ class BlankSpaceWidgetReceiver : AppWidgetProvider() {
             if (!locked) {
                 Toast.makeText(
                     context,
-                    "Enable PixelTapLock in Accessibility Settings to lock the screen",
+                    "Enable Tap2Sleep in Accessibility Settings to sleep the screen",
                     Toast.LENGTH_SHORT
                 ).show()
             }

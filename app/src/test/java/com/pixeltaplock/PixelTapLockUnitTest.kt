@@ -917,9 +917,9 @@ class PixelTapLockUnitTest {
     }
 
     @Test
-    fun `BuildConfig reflects version 1_0_5 and versionCode 6`() {
-        assertEquals(6, BuildConfig.VERSION_CODE)
-        assertEquals("1.0.5", BuildConfig.VERSION_NAME)
+    fun `BuildConfig reflects version 1_0_6 and versionCode 7`() {
+        assertEquals(7, BuildConfig.VERSION_CODE)
+        assertEquals("1.0.6", BuildConfig.VERSION_NAME)
         assertEquals("com.pixeltaplock", BuildConfig.APPLICATION_ID)
     }
 
