@@ -50,6 +50,9 @@ class FlickerProtectionOverlayController(
     private var activeSnapshotBitmap: Bitmap? = null
     private var isLockSequenceInFlight = false
     private var hasTriggeredPostOffRemoval = false
+    private var lastAttachedBounds: Rect? = null
+
+    fun isLockInProgress(): Boolean = isLockSequenceInFlight
 
     private var pendingPreLockDelayRunnable: Runnable? = null
     private var pendingPreDrawFallbackRunnable: Runnable? = null
@@ -76,7 +79,13 @@ class FlickerProtectionOverlayController(
                 val display = displayManager.getDisplay(Display.DEFAULT_DISPLAY)
                 if (display != null) {
                     if (isDisplayOffOrDozing(display.state)) {
-                        schedulePostOffHoldRemoval(currentHoldDurationMs)
+                        if (activeSnapshotBitmap != null) {
+                            // Turn-off transition is finished and panel has reached STATE_OFF or STATE_DOZE (AOD).
+                            // Remove snapshot immediately so AOD clock is not delayed or obscured by a frozen Home Screen.
+                            removeOverlayImmediately()
+                        } else {
+                            schedulePostOffHoldRemoval(currentHoldDurationMs)
+                        }
                     } else if (hasTriggeredPostOffRemoval && display.state == Display.STATE_ON) {
                         removeOverlayImmediately()
                     }
@@ -139,6 +148,8 @@ class FlickerProtectionOverlayController(
         val view = activeOverlayView ?: return
         if (!view.isAttachedToWindow) return
         val maxBounds = queryRealtimeMaximumBounds()
+        if (maxBounds == lastAttachedBounds) return
+        lastAttachedBounds = Rect(maxBounds)
         val updatedParams = buildOverlayLayoutParams(maxBounds)
         try {
             windowManager.updateViewLayout(view, updatedParams)
@@ -252,6 +263,7 @@ class FlickerProtectionOverlayController(
 
         // Step 1: Query real-time hardware maximumWindowMetrics (never cached) and attach overlay
         val realtimeBounds = queryRealtimeMaximumBounds()
+        lastAttachedBounds = Rect(realtimeBounds)
         val layoutParams = buildOverlayLayoutParams(realtimeBounds)
         val overlayView = createOverlayView(snapshotBitmap, realtimeBounds)
         activeSnapshotBitmap = snapshotBitmap
@@ -300,7 +312,11 @@ class FlickerProtectionOverlayController(
                     // Check if display already transitioned to OFF/DOZE immediately
                     val display = displayManager.getDisplay(Display.DEFAULT_DISPLAY)
                     if (display != null && isDisplayOffOrDozing(display.state)) {
-                        schedulePostOffHoldRemoval(clampedPostHoldMs)
+                        if (activeSnapshotBitmap != null) {
+                            removeOverlayImmediately()
+                        } else {
+                            schedulePostOffHoldRemoval(clampedPostHoldMs)
+                        }
                     }
                 }
             }
@@ -369,6 +385,7 @@ class FlickerProtectionOverlayController(
     private fun removeOverlayViewOnly() {
         val view = activeOverlayView
         activeOverlayView = null
+        lastAttachedBounds = null
         activeSnapshotBitmap?.let { bmp ->
             if (!bmp.isRecycled) {
                 try {
@@ -405,22 +422,24 @@ class FlickerProtectionOverlayController(
             isFocusable = false
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
             setOnApplyWindowInsetsListener { _, _ -> WindowInsets.CONSUMED }
-            addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-                override fun onViewAttachedToWindow(v: View) {
-                    v.windowInsetsController?.let { controller ->
-                        controller.hide(
-                            WindowInsets.Type.statusBars() or
-                                WindowInsets.Type.navigationBars() or
-                                WindowInsets.Type.systemBars() or
-                                WindowInsets.Type.displayCutout()
-                        )
-                        controller.systemBarsBehavior =
-                            WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            if (snapshotBitmap == null) {
+                addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                    override fun onViewAttachedToWindow(v: View) {
+                        v.windowInsetsController?.let { controller ->
+                            controller.hide(
+                                WindowInsets.Type.statusBars() or
+                                    WindowInsets.Type.navigationBars() or
+                                    WindowInsets.Type.systemBars() or
+                                    WindowInsets.Type.displayCutout()
+                            )
+                            controller.systemBarsBehavior =
+                                WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                        }
                     }
-                }
 
-                override fun onViewDetachedFromWindow(v: View) = Unit
-            })
+                    override fun onViewDetachedFromWindow(v: View) = Unit
+                })
+            }
         }
 
         if (snapshotBitmap != null && !snapshotBitmap.isRecycled) {

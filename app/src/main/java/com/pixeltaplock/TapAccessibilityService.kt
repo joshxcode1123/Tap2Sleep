@@ -734,6 +734,10 @@ class TapAccessibilityService : AccessibilityService() {
      *   (default), bypasses the overlay so SystemUI transitions directly into Always-On Display (AOD).
      */
     fun executeFlickerProtectedLock() {
+        val controller = flickerController
+        if (isScreenshotInProgress || controller?.isLockInProgress() == true) {
+            return
+        }
         cancelPendingDoubleTapLock()
         firstOutsideTap = null
         val settings = currentSettings
@@ -745,7 +749,6 @@ class TapAccessibilityService : AccessibilityService() {
 
         val useSnapshot = settings.shouldUseSnapshotOverlay(isKeyguardLocked = isLocked)
         val useFlicker = settings.shouldUseFlickerProtection(isKeyguardLocked = isLocked)
-        val controller = flickerController
 
         if (controller == null) {
             if (performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)) {

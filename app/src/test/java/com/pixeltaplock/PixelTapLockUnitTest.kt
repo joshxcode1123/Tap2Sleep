@@ -848,6 +848,73 @@ class PixelTapLockUnitTest {
     }
 
     @Test
+    fun `hard safety timeout ensures overlay is never left attached even under long post-lock hold durations`() {
+        // Standard defaults: 24ms pre-delay + 400ms post-hold + 500ms slack = 924ms, bounded by HARD_SAFETY_TIMEOUT_MS (1200ms)
+        assertEquals(
+            1200L,
+            FlickerProtectionOverlayController.computeInitialHardSafetyTimeoutMs(24L, 400L)
+        )
+
+        // Maximum values: 100ms pre-delay + 1000ms post-hold + 500ms slack = 1600ms
+        assertEquals(
+            1600L,
+            FlickerProtectionOverlayController.computeInitialHardSafetyTimeoutMs(100L, 1000L)
+        )
+
+        // Minimum values: 0ms pre-delay + 100ms post-hold + 500ms slack = 600ms -> bounded by 1200ms
+        assertEquals(
+            1200L,
+            FlickerProtectionOverlayController.computeInitialHardSafetyTimeoutMs(0L, 100L)
+        )
+    }
+
+    @Test
+    fun `preferences clamp all parameters within safe operational bounds`() {
+        val outOfBoundsSettings = TapLockSettings(
+            doubleTapTimeoutMs = 1000,
+            lockScreenWakeGraceMs = 5000,
+            preLockBlackoutDelayMs = 500,
+            postLockHoldDurationMs = 2000
+        )
+
+        assertEquals(TapLockSettings.MAX_DOUBLE_TAP_TIMEOUT_MS, outOfBoundsSettings.clampedDoubleTapTimeoutMs)
+        assertEquals(TapLockSettings.MAX_LOCK_SCREEN_WAKE_GRACE_MS, outOfBoundsSettings.clampedLockScreenWakeGraceMs)
+        assertEquals(TapLockSettings.MAX_PRE_LOCK_DELAY_MS, outOfBoundsSettings.clampedPreLockBlackoutDelayMs)
+        assertEquals(TapLockSettings.MAX_POST_LOCK_HOLD_MS, outOfBoundsSettings.clampedPostLockHoldDurationMs)
+
+        val negativeSettings = TapLockSettings(
+            doubleTapTimeoutMs = -10,
+            lockScreenWakeGraceMs = -50,
+            preLockBlackoutDelayMs = -100,
+            postLockHoldDurationMs = -500
+        )
+
+        assertEquals(TapLockSettings.MIN_DOUBLE_TAP_TIMEOUT_MS, negativeSettings.clampedDoubleTapTimeoutMs)
+        assertEquals(TapLockSettings.MIN_LOCK_SCREEN_WAKE_GRACE_MS, negativeSettings.clampedLockScreenWakeGraceMs)
+        assertEquals(TapLockSettings.MIN_PRE_LOCK_DELAY_MS, negativeSettings.clampedPreLockBlackoutDelayMs)
+        assertEquals(TapLockSettings.MIN_POST_LOCK_HOLD_MS, negativeSettings.clampedPostLockHoldDurationMs)
+    }
+
+    @Test
+    fun `effective wake grace delay applies only on locked Keyguard and never on unlocked Home Screen`() {
+        val settings = TapLockSettings(
+            enableHomeScreen = true,
+            enableLockScreen = true,
+            lockScreenWakeGraceMs = 600
+        )
+
+        // On Lock Screen (isKeyguardLocked = true), imposes the configured 600ms wake grace period
+        assertEquals(600L, settings.effectiveWakeGraceMs(isKeyguardLocked = true))
+
+        // On Home Screen (isKeyguardLocked = false), returns 0L so normal taps are not blocked
+        assertEquals(0L, settings.effectiveWakeGraceMs(isKeyguardLocked = false))
+
+        // When Lock Screen is disabled, returns 0L even if keyguard is locked
+        val disabledLockScreen = settings.copy(enableLockScreen = false)
+        assertEquals(0L, disabledLockScreen.effectiveWakeGraceMs(isKeyguardLocked = true))
+    }
+
+    @Test
     fun `BuildConfig reflects version 1_0_4 and versionCode 5`() {
         assertEquals(5, BuildConfig.VERSION_CODE)
         assertEquals("1.0.4", BuildConfig.VERSION_NAME)
