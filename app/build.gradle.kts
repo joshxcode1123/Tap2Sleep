@@ -31,6 +31,7 @@ android {
         }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
             vcsInfo {
                 include = true
             }
@@ -38,6 +39,13 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+    }
+
+    applicationVariants.all {
+        outputs.all {
+            val output = this as? com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            output?.outputFileName = "Tap2Sleep-v${versionName}.apk"
         }
     }
 
