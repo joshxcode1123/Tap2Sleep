@@ -1,6 +1,8 @@
 package com.pixeltaplock
 
 import android.view.Display
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityWindowInfo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -915,9 +917,485 @@ class PixelTapLockUnitTest {
     }
 
     @Test
-    fun `BuildConfig reflects version 1_0_4 and versionCode 5`() {
-        assertEquals(5, BuildConfig.VERSION_CODE)
-        assertEquals("1.0.4", BuildConfig.VERSION_NAME)
+    fun `BuildConfig reflects version 1_0_5 and versionCode 6`() {
+        assertEquals(6, BuildConfig.VERSION_CODE)
+        assertEquals("1.0.5", BuildConfig.VERSION_NAME)
         assertEquals("com.pixeltaplock", BuildConfig.APPLICATION_ID)
+    }
+
+    @Test
+    fun `isInterruptingAccessibilityEvent ignores launcher focus and overlay transitions while interrupting on app launch, clicks, and scrolls`() {
+        val allowedLaunchers = setOf(
+            TapAccessibilityService.PIXEL_LAUNCHER_PACKAGE,
+            TapAccessibilityService.AOSP_LAUNCHER_PACKAGE
+        )
+        val ownPkg = "com.pixeltaplock"
+        val ownWidgetDesc = "Double-tap empty widget area to lock screen"
+
+        // 1. Launcher regaining focus (TYPE_WINDOW_STATE_CHANGED) -> does NOT interrupt
+        assertFalse(
+            BlankSpaceHitTester.isInterruptingAccessibilityEvent(
+                eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                packageName = "com.google.android.apps.nexuslauncher",
+                className = "com.google.android.apps.nexuslauncher.NexusLauncherActivity",
+                contentDescription = null,
+                ownPackageName = ownPkg,
+                ownWidgetContentDescription = ownWidgetDesc,
+                allowedLauncherPackages = allowedLaunchers
+            )
+        )
+
+        // 2. AOSP Launcher regaining focus -> does NOT interrupt
+        assertFalse(
+            BlankSpaceHitTester.isInterruptingAccessibilityEvent(
+                eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                packageName = "com.android.launcher3",
+                className = "com.android.launcher3.uioverrides.QuickstepLauncher",
+                contentDescription = null,
+                ownPackageName = ownPkg,
+                ownWidgetContentDescription = ownWidgetDesc,
+                allowedLauncherPackages = allowedLaunchers
+            )
+        )
+
+        // 3. PixelTapLock's own overlay window state changed -> does NOT interrupt
+        assertFalse(
+            BlankSpaceHitTester.isInterruptingAccessibilityEvent(
+                eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                packageName = ownPkg,
+                className = "com.pixeltaplock.FlickerProtectionOverlay",
+                contentDescription = null,
+                ownPackageName = ownPkg,
+                ownWidgetContentDescription = ownWidgetDesc,
+                allowedLauncherPackages = allowedLaunchers
+            )
+        )
+
+        // 4. Null package with launcher class name -> does NOT interrupt
+        assertFalse(
+            BlankSpaceHitTester.isInterruptingAccessibilityEvent(
+                eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                packageName = null,
+                className = "com.google.android.apps.nexuslauncher.NexusLauncherActivity",
+                contentDescription = null,
+                ownPackageName = ownPkg,
+                ownWidgetContentDescription = ownWidgetDesc,
+                allowedLauncherPackages = allowedLaunchers
+            )
+        )
+
+        // 5. REGRESSION: Real app launch (e.g. YouTube) -> INTERRUPTS
+        assertTrue(
+            BlankSpaceHitTester.isInterruptingAccessibilityEvent(
+                eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                packageName = "com.google.android.youtube",
+                className = "com.google.android.youtube.HomeActivity",
+                contentDescription = null,
+                ownPackageName = ownPkg,
+                ownWidgetContentDescription = ownWidgetDesc,
+                allowedLauncherPackages = allowedLaunchers
+            )
+        )
+
+        // 6. REGRESSION: Notification shade / SystemUI window state change -> INTERRUPTS
+        assertTrue(
+            BlankSpaceHitTester.isInterruptingAccessibilityEvent(
+                eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                packageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+                className = "com.android.systemui.shade.NotificationShadeWindowView",
+                contentDescription = null,
+                ownPackageName = ownPkg,
+                ownWidgetContentDescription = ownWidgetDesc,
+                allowedLauncherPackages = allowedLaunchers
+            )
+        )
+
+        // 7. REGRESSION: Clicking an app icon on Home Screen -> INTERRUPTS
+        assertTrue(
+            BlankSpaceHitTester.isInterruptingAccessibilityEvent(
+                eventType = AccessibilityEvent.TYPE_VIEW_CLICKED,
+                packageName = "com.google.android.apps.nexuslauncher",
+                className = "android.widget.TextView",
+                contentDescription = "Chrome",
+                ownPackageName = ownPkg,
+                ownWidgetContentDescription = ownWidgetDesc,
+                allowedLauncherPackages = allowedLaunchers
+            )
+        )
+
+        // 8. REGRESSION: Long-clicking an app icon or widget -> INTERRUPTS
+        assertTrue(
+            BlankSpaceHitTester.isInterruptingAccessibilityEvent(
+                eventType = AccessibilityEvent.TYPE_VIEW_LONG_CLICKED,
+                packageName = "com.google.android.apps.nexuslauncher",
+                className = "android.widget.TextView",
+                contentDescription = "Messages",
+                ownPackageName = ownPkg,
+                ownWidgetContentDescription = ownWidgetDesc,
+                allowedLauncherPackages = allowedLaunchers
+            )
+        )
+
+        // 9. REGRESSION: Scrolling the workspace / app drawer -> INTERRUPTS
+        assertTrue(
+            BlankSpaceHitTester.isInterruptingAccessibilityEvent(
+                eventType = AccessibilityEvent.TYPE_VIEW_SCROLLED,
+                packageName = "com.google.android.apps.nexuslauncher",
+                className = "com.android.launcher3.PagedView",
+                contentDescription = null,
+                ownPackageName = ownPkg,
+                ownWidgetContentDescription = ownWidgetDesc,
+                allowedLauncherPackages = allowedLaunchers
+            )
+        )
+
+        // 10. Tapping inside own BlankSpaceWidget -> does NOT interrupt
+        assertFalse(
+            BlankSpaceHitTester.isInterruptingAccessibilityEvent(
+                eventType = AccessibilityEvent.TYPE_VIEW_CLICKED,
+                packageName = ownPkg,
+                className = "android.widget.FrameLayout",
+                contentDescription = ownWidgetDesc,
+                ownPackageName = ownPkg,
+                ownWidgetContentDescription = ownWidgetDesc,
+                allowedLauncherPackages = allowedLaunchers
+            )
+        )
+
+        // 11. Other non-interactive event (TYPE_WINDOWS_CHANGED) -> does NOT interrupt
+        assertFalse(
+            BlankSpaceHitTester.isInterruptingAccessibilityEvent(
+                eventType = AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+                packageName = "com.google.android.apps.nexuslauncher",
+                className = null,
+                contentDescription = null,
+                ownPackageName = ownPkg,
+                ownWidgetContentDescription = ownWidgetDesc,
+                allowedLauncherPackages = allowedLaunchers
+            )
+        )
+    }
+
+    @Test
+    fun `Check B correlation debounce distinguishes launcher focus events from interrupting real interactions`() {
+        val tap1Uptime = 5000L
+        val tap2Plus60ms = 5260L
+
+        // Scenario 1: Returning Home fires launcher TYPE_WINDOW_STATE_CHANGED between tap1 and debounce end.
+        // Because launcher focus is not an interrupting interactive event, lastInteractiveEventUptimeMillis remains old (4200L).
+        assertFalse(
+            BlankSpaceHitTester.wasInterruptedByInteractiveEvent(
+                tap1UptimeMillis = tap1Uptime,
+                debounceEndUptimeMillis = tap2Plus60ms,
+                lastInteractiveEventUptimeMillis = 4200L
+            )
+        )
+
+        // Scenario 2: Real app launch occurred between tap1 and debounce end -> INTERRUPTS
+        assertTrue(
+            BlankSpaceHitTester.wasInterruptedByInteractiveEvent(
+                tap1UptimeMillis = tap1Uptime,
+                debounceEndUptimeMillis = tap2Plus60ms,
+                lastInteractiveEventUptimeMillis = 5120L
+            )
+        )
+
+        // Scenario 3: Real app icon click occurred during 60ms debounce window -> INTERRUPTS
+        assertTrue(
+            BlankSpaceHitTester.wasInterruptedByInteractiveEvent(
+                tap1UptimeMillis = tap1Uptime,
+                debounceEndUptimeMillis = tap2Plus60ms,
+                lastInteractiveEventUptimeMillis = 5240L
+            )
+        )
+
+        // Scenario 4: Real workspace scroll occurred between tap1 and tap2 -> INTERRUPTS
+        assertTrue(
+            BlankSpaceHitTester.wasInterruptedByInteractiveEvent(
+                tap1UptimeMillis = tap1Uptime,
+                debounceEndUptimeMillis = tap2Plus60ms,
+                lastInteractiveEventUptimeMillis = 5080L
+            )
+        )
+    }
+
+    @Test
+    fun `app-close transition allows Tap 1 candidate when launcher window is visible but not yet active or focused`() {
+        val allowedLaunchers = setOf(
+            "com.google.android.apps.nexuslauncher",
+            "com.android.launcher3"
+        )
+
+        // Closing Chrome window: no longer active/focused, animating out
+        val closingChromeWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = false,
+            isFocused = false,
+            packageName = "com.android.chrome",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2992)
+        )
+
+        // Launcher window: visible full-screen, but WindowManager has not yet marked it active/focused
+        val transitioningLauncherWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = false,
+            isFocused = false,
+            packageName = "com.google.android.apps.nexuslauncher",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2992)
+        )
+
+        // System gesture navigation bar: normal small height, not focused
+        val navBarWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_SYSTEM,
+            isActive = false,
+            isFocused = false,
+            packageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 2866, 1344, 2992)
+        )
+
+        val transitionWindows = listOf(closingChromeWindow, transitioningLauncherWindow, navBarWindow)
+
+        // During transition, activeRootPackageName is null because no window is currently active/focused
+        val activeRootPkgDuringTransition: String? = null
+
+        // 1. Relaxed eligibility for Tap 1 candidate (allowTransitionCandidate = true) -> ALLOWED
+        assertTrue(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = transitionWindows,
+                activeRootPackageName = activeRootPkgDuringTransition,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = true
+            )
+        )
+
+        // 2. Strict eligibility at lock time in 60ms debounce (allowTransitionCandidate = false) -> REJECTED
+        // Ensures nothing locks until the launcher actually becomes the active, focused window.
+        assertFalse(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = transitionWindows,
+                activeRootPackageName = activeRootPkgDuringTransition,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = false
+            )
+        )
+    }
+
+    @Test
+    fun `lock time re-validation requires launcher to be focused or active before executing lock`() {
+        val allowedLaunchers = setOf(
+            "com.google.android.apps.nexuslauncher",
+            "com.android.launcher3"
+        )
+
+        // Case A: Transition completed before 60ms debounce expires: launcher is now active & focused
+        val settledLauncherWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = true,
+            isFocused = true,
+            packageName = "com.google.android.apps.nexuslauncher",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2992)
+        )
+        val settledWindows = listOf(settledLauncherWindow)
+
+        // Strict lock re-validation passes when settled
+        assertTrue(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = settledWindows,
+                activeRootPackageName = "com.google.android.apps.nexuslauncher",
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = false
+            )
+        )
+
+        // Case B: Transition aborted or user switched to another app (e.g. Chrome re-gained active focus)
+        val chromeActiveWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = true,
+            isFocused = true,
+            packageName = "com.android.chrome",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2992)
+        )
+        val abortedWindows = listOf(chromeActiveWindow, settledLauncherWindow.copy(isActive = false, isFocused = false))
+
+        // Strict lock re-validation rejects locking over Chrome
+        assertFalse(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = abortedWindows,
+                activeRootPackageName = "com.android.chrome",
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = false
+            )
+        )
+    }
+
+    @Test
+    fun `regression test active foreground app blocks locking in both transition and strict modes`() {
+        val allowedLaunchers = setOf(
+            "com.google.android.apps.nexuslauncher",
+            "com.android.launcher3"
+        )
+
+        val activeYouTubeWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = true,
+            isFocused = true,
+            packageName = "com.google.android.youtube",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2992)
+        )
+        val inactiveLauncherWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = false,
+            isFocused = false,
+            packageName = "com.google.android.apps.nexuslauncher",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2992)
+        )
+
+        val windowsWithActiveApp = listOf(activeYouTubeWindow, inactiveLauncherWindow)
+
+        // 1. When a non-launcher app is active, transition candidate is REJECTED
+        assertFalse(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = windowsWithActiveApp,
+                activeRootPackageName = "com.google.android.youtube",
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = true
+            )
+        )
+
+        // 2. Strict check is also REJECTED
+        assertFalse(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = windowsWithActiveApp,
+                activeRootPackageName = "com.google.android.youtube",
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = false
+            )
+        )
+
+        // 3. If activeRootPackageName belongs to YouTube even with null windows -> REJECTED
+        assertFalse(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = null,
+                activeRootPackageName = "com.google.android.youtube",
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = true
+            )
+        )
+    }
+
+    @Test
+    fun `regression test expanded notification shade blocks locking in both transition and strict modes`() {
+        val allowedLaunchers = setOf(
+            "com.google.android.apps.nexuslauncher",
+            "com.android.launcher3"
+        )
+
+        val activeLauncherWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = true,
+            isFocused = false,
+            packageName = "com.google.android.apps.nexuslauncher",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2992)
+        )
+
+        // Expanded shade: height > 35% of 2992 (1047px) -> 1800px
+        val expandedShadeWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_SYSTEM,
+            isActive = true,
+            isFocused = true,
+            packageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 1800)
+        )
+
+        val windowsWithExpandedShade = listOf(expandedShadeWindow, activeLauncherWindow)
+
+        // 1. Transition candidate mode is BLOCKED by expanded shade
+        assertFalse(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = windowsWithExpandedShade,
+                activeRootPackageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = true
+            )
+        )
+
+        // 2. Strict mode is BLOCKED by expanded shade
+        assertFalse(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = windowsWithExpandedShade,
+                activeRootPackageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = false
+            )
+        )
+
+        // 3. Non-focused but large system window (> 35% height) is BLOCKED in both modes
+        val unfocusedExpandedShade = expandedShadeWindow.copy(isActive = false, isFocused = false)
+        val windowsWithUnfocusedShade = listOf(unfocusedExpandedShade, activeLauncherWindow)
+        assertFalse(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = windowsWithUnfocusedShade,
+                activeRootPackageName = "com.google.android.apps.nexuslauncher",
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = true
+            )
+        )
+        assertFalse(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = windowsWithUnfocusedShade,
+                activeRootPackageName = "com.google.android.apps.nexuslauncher",
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = false
+            )
+        )
+    }
+
+    @Test
+    fun `launcher window missing or collapsed rejects transition candidate`() {
+        val allowedLaunchers = setOf(
+            "com.google.android.apps.nexuslauncher",
+            "com.android.launcher3"
+        )
+
+        // Collapsed launcher window (< 50% screen height)
+        val collapsedLauncher = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = false,
+            isFocused = false,
+            packageName = "com.google.android.apps.nexuslauncher",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 500)
+        )
+
+        assertFalse(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = listOf(collapsedLauncher),
+                activeRootPackageName = null,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = true
+            )
+        )
+
+        // Empty window list with null activeRootPackageName rejects
+        assertFalse(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = emptyList(),
+                activeRootPackageName = null,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = true
+            )
+        )
     }
 }

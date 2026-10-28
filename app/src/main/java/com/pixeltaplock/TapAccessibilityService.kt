@@ -163,23 +163,15 @@ class TapAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
 
-        val eventType = event.eventType
-        val isInteractiveEvent = when (eventType) {
-            AccessibilityEvent.TYPE_VIEW_CLICKED,
-            AccessibilityEvent.TYPE_VIEW_LONG_CLICKED,
-            AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
-                val ownWidgetDesc = getString(R.string.widget_content_description)
-                val eventDesc = event.contentDescription?.toString()
-                eventDesc != ownWidgetDesc
-            }
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                val pkg = event.packageName?.toString()
-                val cls = event.className?.toString().orEmpty()
-                // Ignore our own overlay window state changes
-                pkg != packageName && !cls.contains("PixelTapLock")
-            }
-            else -> false
-        }
+        val isInteractiveEvent = BlankSpaceHitTester.isInterruptingAccessibilityEvent(
+            eventType = event.eventType,
+            packageName = event.packageName?.toString(),
+            className = event.className?.toString(),
+            contentDescription = event.contentDescription?.toString(),
+            ownPackageName = packageName,
+            ownWidgetContentDescription = getString(R.string.widget_content_description),
+            allowedLauncherPackages = resolveAllowedLauncherPackages()
+        )
 
         if (isInteractiveEvent) {
             lastInteractiveEventUptimeMillis = SystemClock.uptimeMillis()
@@ -210,6 +202,7 @@ class TapAccessibilityService : AccessibilityService() {
         stopWakeTransitionTracking()
         flickerController?.stopListening()
         flickerController = null
+        cachedAllowedLauncherPackages = null
         if (instance === this) {
             instance = null
         }
@@ -391,7 +384,7 @@ class TapAccessibilityService : AccessibilityService() {
             return
         }
 
-        if (!isEligibleScreenContext(settings)) {
+        if (!isEligibleScreenContext(settings, allowTransitionCandidate = true)) {
             firstOutsideTap = null
             return
         }
@@ -494,7 +487,7 @@ class TapAccessibilityService : AccessibilityService() {
             if (interrupted) {
                 return@Runnable
             }
-            if (!isEligibleScreenContext(debounceSettings)) {
+            if (!isEligibleScreenContext(debounceSettings, allowTransitionCandidate = false)) {
                 return@Runnable
             }
             executeFlickerProtectedLock()
@@ -536,7 +529,10 @@ class TapAccessibilityService : AccessibilityService() {
      * (excluding showWhenLocked apps like Camera or recent-photo review, and excluding the PIN/Pattern bouncer)
      * or an enabled, unobscured Home Screen workspace (Check C).
      */
-    private fun isEligibleScreenContext(settings: TapLockSettings): Boolean {
+    private fun isEligibleScreenContext(
+        settings: TapLockSettings,
+        allowTransitionCandidate: Boolean = false
+    ): Boolean {
         val windowsList = try {
             windows
         } catch (_: Exception) {
@@ -581,9 +577,12 @@ class TapAccessibilityService : AccessibilityService() {
             windows = windowsList,
             activeRootPackageName = activeRootPkg,
             allowedLauncherPackages = allowedLaunchers,
-            screenHeightPx = maxBounds.height()
+            screenHeightPx = maxBounds.height(),
+            allowTransitionCandidate = allowTransitionCandidate
         )
     }
+
+    private var cachedAllowedLauncherPackages: Set<String>? = null
 
     /**
      * Dynamically resolves the default Home launcher package via PackageManager.resolveActivity
@@ -591,6 +590,7 @@ class TapAccessibilityService : AccessibilityService() {
      * (com.google.android.apps.nexuslauncher).
      */
     private fun resolveAllowedLauncherPackages(): Set<String> {
+        cachedAllowedLauncherPackages?.let { return it }
         val packages = mutableSetOf(
             PIXEL_LAUNCHER_PACKAGE,
             AOSP_LAUNCHER_PACKAGE
@@ -615,6 +615,7 @@ class TapAccessibilityService : AccessibilityService() {
         } catch (_: Exception) {
             // Fallback to known Pixel Launcher packages
         }
+        cachedAllowedLauncherPackages = packages
         return packages
     }
 

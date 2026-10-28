@@ -1,6 +1,7 @@
 package com.pixeltaplock
 
 import android.graphics.Rect
+import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import kotlin.math.hypot
@@ -49,6 +50,18 @@ data class NodeSnapshot(
     val childCount: Int,
     val children: List<NodeSnapshot> = emptyList(),
     val packageName: String? = null
+)
+
+/**
+ * Abstract representation of an AccessibilityWindowInfo window for deterministic unit testing.
+ */
+data class WindowSnapshot(
+    val type: Int,
+    val isActive: Boolean = false,
+    val isFocused: Boolean = false,
+    val packageName: String? = null,
+    val boundsInScreen: Rect = Rect(),
+    val title: String? = null
 )
 
 object BlankSpaceHitTester {
@@ -215,6 +228,46 @@ object BlankSpaceHitTester {
         }
 
         return true
+    }
+
+    /**
+     * Evaluates whether an accessibility event represents an interactive user action
+     * (click, long click, scroll, app launch, or notification shade transition) that
+     * should invalidate a pending double-tap lock sequence.
+     *
+     * Window state changes for allowed launcher packages (e.g. launcher regaining focus
+     * or settling upon returning Home) or PixelTapLock's own overlay windows are NOT
+     * treated as interrupting interactive events.
+     */
+    fun isInterruptingAccessibilityEvent(
+        eventType: Int,
+        packageName: String?,
+        className: String?,
+        contentDescription: String?,
+        ownPackageName: String,
+        ownWidgetContentDescription: String?,
+        allowedLauncherPackages: Set<String>
+    ): Boolean {
+        return when (eventType) {
+            AccessibilityEvent.TYPE_VIEW_CLICKED,
+            AccessibilityEvent.TYPE_VIEW_LONG_CLICKED,
+            AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
+                val eventDesc = contentDescription
+                ownWidgetContentDescription.isNullOrEmpty() || eventDesc != ownWidgetContentDescription
+            }
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                val pkg = packageName
+                val cls = className.orEmpty()
+                if (pkg == ownPackageName || cls.contains("PixelTapLock")) {
+                    false
+                } else if (!pkg.isNullOrEmpty()) {
+                    pkg !in allowedLauncherPackages
+                } else {
+                    !cls.contains("launcher", ignoreCase = true)
+                }
+            }
+            else -> false
+        }
     }
 
     /**
@@ -651,14 +704,70 @@ object BlankSpaceHitTester {
     /**
      * Check C (Active Workspace Filter):
      * When on the Home Screen (not Lock Screen), verifies that:
-     * 1. An application window (TYPE_APPLICATION) belonging to the launcher is focused/active, AND
+     * 1. An application window (TYPE_APPLICATION) belonging to the launcher is focused/active, OR
+     *    when [allowTransitionCandidate] is true, the launcher window is present and visible while
+     *    no non-launcher application window is active/focused and no shade is obscuring the screen.
      * 2. The workspace is not obscured by an expanded TYPE_SYSTEM notification shade / Quick Settings panel.
      */
     fun isHomeWorkspaceUnobscured(
         windows: List<AccessibilityWindowInfo>?,
         activeRootPackageName: String?,
         allowedLauncherPackages: Set<String>,
-        screenHeightPx: Int
+        screenHeightPx: Int,
+        allowTransitionCandidate: Boolean = false
+    ): Boolean {
+        if (windows == null) {
+            return isHomeWorkspaceSnapshotUnobscured(
+                windows = null,
+                activeRootPackageName = activeRootPackageName,
+                allowedLauncherPackages = allowedLauncherPackages,
+                screenHeightPx = screenHeightPx,
+                allowTransitionCandidate = allowTransitionCandidate
+            )
+        }
+        val snapshots = ArrayList<WindowSnapshot>(windows.size)
+        for (window in windows) {
+            val bounds = Rect()
+            window.getBoundsInScreen(bounds)
+            val titleStr = try {
+                window.title?.toString()
+            } catch (_: Exception) {
+                null
+            }
+            val pkg = try {
+                window.root?.packageName?.toString()
+            } catch (_: Exception) {
+                null
+            }
+            snapshots.add(
+                WindowSnapshot(
+                    type = window.type,
+                    isActive = window.isActive,
+                    isFocused = window.isFocused,
+                    packageName = pkg,
+                    boundsInScreen = bounds,
+                    title = titleStr
+                )
+            )
+        }
+        return isHomeWorkspaceSnapshotUnobscured(
+            windows = snapshots,
+            activeRootPackageName = activeRootPackageName,
+            allowedLauncherPackages = allowedLauncherPackages,
+            screenHeightPx = screenHeightPx,
+            allowTransitionCandidate = allowTransitionCandidate
+        )
+    }
+
+    /**
+     * Same active workspace validation over [WindowSnapshot] for deterministic unit testing.
+     */
+    fun isHomeWorkspaceSnapshotUnobscured(
+        windows: List<WindowSnapshot>?,
+        activeRootPackageName: String?,
+        allowedLauncherPackages: Set<String>,
+        screenHeightPx: Int,
+        allowTransitionCandidate: Boolean = false
     ): Boolean {
         // If activeRootPackageName is present and does not belong to an allowed launcher
         // (e.g. "com.android.systemui" when notification shade is expanded, or another foreground app), reject immediately.
@@ -672,19 +781,43 @@ object BlankSpaceHitTester {
         }
 
         var hasActiveLauncherApplicationWindow = false
+        var hasVisibleLauncherWindow = false
+        var hasActiveNonLauncherApp = false
+        var hasObscuringSystemWindow = false
+
         for (window in windows) {
             when (window.type) {
                 AccessibilityWindowInfo.TYPE_APPLICATION -> {
-                    val pkg = window.root?.packageName?.toString()
+                    val pkg = window.packageName
+                    val titleStr = window.title
                     val isLauncherPkg = if (pkg != null) {
                         pkg in allowedLauncherPackages
+                    } else if (!titleStr.isNullOrEmpty() &&
+                        (allowedLauncherPackages.any { titleStr.contains(it, ignoreCase = true) } ||
+                            titleStr.contains("launcher", ignoreCase = true))
+                    ) {
+                        true
                     } else {
                         !activeRootPackageName.isNullOrEmpty() && activeRootPackageName in allowedLauncherPackages
                     }
-                    if ((window.isActive || window.isFocused) && isLauncherPkg) {
-                        hasActiveLauncherApplicationWindow = true
-                    } else if (window.isActive || window.isFocused) {
-                        return false
+
+                    if (isLauncherPkg) {
+                        val isVisible = if (screenHeightPx > 0) {
+                            rectHeight(window.boundsInScreen) >= (screenHeightPx * 0.50f).toInt() &&
+                                rectWidth(window.boundsInScreen) > 0
+                        } else {
+                            rectHeight(window.boundsInScreen) > 0 && rectWidth(window.boundsInScreen) > 0
+                        }
+                        if (isVisible) {
+                            hasVisibleLauncherWindow = true
+                        }
+                        if (window.isActive || window.isFocused) {
+                            hasActiveLauncherApplicationWindow = true
+                        }
+                    } else {
+                        if (window.isActive || window.isFocused) {
+                            hasActiveNonLauncherApp = true
+                        }
                     }
                 }
                 AccessibilityWindowInfo.TYPE_SYSTEM -> {
@@ -692,20 +825,26 @@ object BlankSpaceHitTester {
                     // If a TYPE_SYSTEM window is focused/active OR expands over > 35% of screen height,
                     // the notification shade / Quick Settings / volume / power dialog is obscuring the Home Screen.
                     if (window.isFocused || window.isActive) {
-                        return false
+                        hasObscuringSystemWindow = true
                     }
                     if (screenHeightPx > 0) {
-                        val rect = Rect()
-                        window.getBoundsInScreen(rect)
-                        if (rectHeight(rect) > (screenHeightPx * 0.35f).toInt()) {
-                            return false
+                        if (rectHeight(window.boundsInScreen) > (screenHeightPx * 0.35f).toInt()) {
+                            hasObscuringSystemWindow = true
                         }
                     }
                 }
             }
         }
 
-        return hasActiveLauncherApplicationWindow
+        if (hasObscuringSystemWindow || hasActiveNonLauncherApp) {
+            return false
+        }
+
+        return if (allowTransitionCandidate) {
+            hasActiveLauncherApplicationWindow || hasVisibleLauncherWindow
+        } else {
+            hasActiveLauncherApplicationWindow
+        }
     }
 
     fun createRect(left: Int, top: Int, right: Int, bottom: Int): Rect {
