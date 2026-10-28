@@ -176,6 +176,7 @@ class FlickerProtectionOverlayController(
         }
 
         if (!enableFlickerProtection) {
+            removeOverlayImmediately()
             performLockAction()
             return
         }

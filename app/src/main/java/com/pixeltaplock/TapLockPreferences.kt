@@ -22,6 +22,7 @@ data class TapLockSettings(
     val enableLockScreen: Boolean = DEFAULT_ENABLE_LOCK_SCREEN,
     val doubleTapTimeoutMs: Int = DEFAULT_DOUBLE_TAP_TIMEOUT_MS,
     val enableFlickerProtection: Boolean = DEFAULT_ENABLE_FLICKER_PROTECTION,
+    val enableLockScreenFlickerProtection: Boolean = DEFAULT_ENABLE_LOCK_SCREEN_FLICKER_PROTECTION,
     val preLockBlackoutDelayMs: Int = DEFAULT_PRE_LOCK_DELAY_MS,
     val postLockHoldDurationMs: Int = DEFAULT_POST_LOCK_HOLD_MS
 ) {
@@ -34,6 +35,21 @@ data class TapLockSettings(
     val clampedPostLockHoldDurationMs: Int
         get() = postLockHoldDurationMs.coerceIn(MIN_POST_LOCK_HOLD_MS, MAX_POST_LOCK_HOLD_MS)
 
+    /**
+     * Determines whether the full-bleed #000000 flicker protection overlay should be attached
+     * before invoking GLOBAL_ACTION_LOCK_SCREEN.
+     * - On the Lock Screen ([isKeyguardLocked] == true), uses [enableLockScreenFlickerProtection]
+     *   (default false so SystemUI transitions directly to Always-On Display without flashing black).
+     * - On the Home Screen ([isKeyguardLocked] == false), uses [enableFlickerProtection] (default true).
+     */
+    fun shouldUseFlickerProtection(isKeyguardLocked: Boolean): Boolean {
+        return if (isKeyguardLocked) {
+            enableLockScreenFlickerProtection
+        } else {
+            enableFlickerProtection
+        }
+    }
+
     companion object {
         const val DEFAULT_ENABLE_HOME_SCREEN = true
         const val DEFAULT_ENABLE_LOCK_SCREEN = true
@@ -43,6 +59,7 @@ data class TapLockSettings(
         const val DEFAULT_DOUBLE_TAP_TIMEOUT_MS = 300
 
         const val DEFAULT_ENABLE_FLICKER_PROTECTION = true
+        const val DEFAULT_ENABLE_LOCK_SCREEN_FLICKER_PROTECTION = false
 
         const val MIN_PRE_LOCK_DELAY_MS = 0
         const val MAX_PRE_LOCK_DELAY_MS = 100
@@ -61,6 +78,8 @@ class TapLockPreferencesRepository(private val dataStore: DataStore<Preferences>
         val ENABLE_LOCK_SCREEN = booleanPreferencesKey("enable_lock_screen")
         val DOUBLE_TAP_TIMEOUT_MS = intPreferencesKey("double_tap_timeout_ms")
         val ENABLE_FLICKER_PROTECTION = booleanPreferencesKey("enable_flicker_protection")
+        val ENABLE_LOCK_SCREEN_FLICKER_PROTECTION =
+            booleanPreferencesKey("enable_lock_screen_flicker_protection")
         val PRE_LOCK_BLACKOUT_DELAY_MS = intPreferencesKey("pre_lock_blackout_delay_ms")
         val POST_LOCK_HOLD_DURATION_MS = intPreferencesKey("post_lock_hold_duration_ms")
     }
@@ -87,6 +106,8 @@ class TapLockPreferencesRepository(private val dataStore: DataStore<Preferences>
                     ),
                 enableFlickerProtection = prefs[Keys.ENABLE_FLICKER_PROTECTION]
                     ?: TapLockSettings.DEFAULT_ENABLE_FLICKER_PROTECTION,
+                enableLockScreenFlickerProtection = prefs[Keys.ENABLE_LOCK_SCREEN_FLICKER_PROTECTION]
+                    ?: TapLockSettings.DEFAULT_ENABLE_LOCK_SCREEN_FLICKER_PROTECTION,
                 preLockBlackoutDelayMs = (prefs[Keys.PRE_LOCK_BLACKOUT_DELAY_MS]
                     ?: TapLockSettings.DEFAULT_PRE_LOCK_DELAY_MS)
                     .coerceIn(
@@ -121,6 +142,10 @@ class TapLockPreferencesRepository(private val dataStore: DataStore<Preferences>
 
     suspend fun setEnableFlickerProtection(enabled: Boolean) {
         dataStore.edit { it[Keys.ENABLE_FLICKER_PROTECTION] = enabled }
+    }
+
+    suspend fun setEnableLockScreenFlickerProtection(enabled: Boolean) {
+        dataStore.edit { it[Keys.ENABLE_LOCK_SCREEN_FLICKER_PROTECTION] = enabled }
     }
 
     suspend fun setPreLockBlackoutDelayMs(delayMs: Int) {

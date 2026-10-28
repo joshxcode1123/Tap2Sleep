@@ -248,6 +248,11 @@ fun PixelTapLockSettingsScreen(
                 onToggleFlickerProtection = { enabled ->
                     coroutineScope.launch { repository.setEnableFlickerProtection(enabled) }
                 },
+                onToggleLockScreenFlickerProtection = { enabled ->
+                    coroutineScope.launch {
+                        repository.setEnableLockScreenFlickerProtection(enabled)
+                    }
+                },
                 onPreLockDelayChange = { delayMs ->
                     coroutineScope.launch { repository.setPreLockBlackoutDelayMs(delayMs) }
                 },
@@ -472,7 +477,7 @@ private fun DetectionSettingsCard(
 
             SettingSwitchRow(
                 title = "Enable on Lock Screen",
-                subtitle = "Lock immediately when double-tapping blank area on the Lock Screen",
+                subtitle = "Transition directly to AOD / turn off screen when double-tapping blank area on the Lock Screen",
                 checked = settings.enableLockScreen,
                 onCheckedChange = onToggleLockScreen
             )
@@ -521,6 +526,7 @@ private fun FlickerProtectionCard(
     hardwareWidthPx: Int,
     hardwareHeightPx: Int,
     onToggleFlickerProtection: (Boolean) -> Unit,
+    onToggleLockScreenFlickerProtection: (Boolean) -> Unit,
     onPreLockDelayChange: (Int) -> Unit,
     onPostLockHoldChange: (Int) -> Unit
 ) {
@@ -530,6 +536,9 @@ private fun FlickerProtectionCard(
     var postHoldSlider by remember(settings.clampedPostLockHoldDurationMs) {
         mutableStateOf(settings.clampedPostLockHoldDurationMs.toFloat())
     }
+
+    val anyFlickerMaskEnabled =
+        settings.enableFlickerProtection || settings.enableLockScreenFlickerProtection
 
     val oversizedGeometry = remember(hardwareWidthPx, hardwareHeightPx) {
         FlickerProtectionOverlayController.calculateOversizedOverlayGeometry(
@@ -563,9 +572,18 @@ private fun FlickerProtectionCard(
 
             SettingSwitchRow(
                 title = "Enable QHD+ Full-Bleed Flicker Protection",
-                subtitle = "Covers 100% of the physical OLED panel (including camera cutout & system bars) with pure #000000 before locking",
+                subtitle = "Covers 100% of the physical OLED panel (including camera cutout & system bars) with pure #000000 before locking from the Home Screen",
                 checked = settings.enableFlickerProtection,
                 onCheckedChange = onToggleFlickerProtection
+            )
+
+            HorizontalDivider()
+
+            SettingSwitchRow(
+                title = "Use Flicker Mask on Lock Screen",
+                subtitle = "Off by default so double-tapping on the Lock Screen transitions directly into Always-On Display (AOD) without flashing black",
+                checked = settings.enableLockScreenFlickerProtection,
+                onCheckedChange = onToggleLockScreenFlickerProtection
             )
 
             HorizontalDivider()
@@ -599,7 +617,7 @@ private fun FlickerProtectionCard(
                     onValueChangeFinished = {
                         onPreLockDelayChange(preDelaySlider.roundToInt())
                     },
-                    enabled = settings.enableFlickerProtection,
+                    enabled = anyFlickerMaskEnabled,
                     valueRange = TapLockSettings.MIN_PRE_LOCK_DELAY_MS.toFloat()..TapLockSettings.MAX_PRE_LOCK_DELAY_MS.toFloat()
                 )
             }
@@ -635,7 +653,7 @@ private fun FlickerProtectionCard(
                     onValueChangeFinished = {
                         onPostLockHoldChange(postHoldSlider.roundToInt())
                     },
-                    enabled = settings.enableFlickerProtection,
+                    enabled = anyFlickerMaskEnabled,
                     valueRange = TapLockSettings.MIN_POST_LOCK_HOLD_MS.toFloat()..TapLockSettings.MAX_POST_LOCK_HOLD_MS.toFloat()
                 )
             }

@@ -721,9 +721,43 @@ class PixelTapLockUnitTest {
     }
 
     @Test
-    fun `BuildConfig reflects version 1_0_1 and versionCode 2`() {
-        assertEquals(2, BuildConfig.VERSION_CODE)
-        assertEquals("1.0.1", BuildConfig.VERSION_NAME)
+    fun `Lock Screen bypasses black flicker mask by default for direct AOD transition while Home Screen uses flicker mask`() {
+        val defaultSettings = TapLockSettings()
+        assertTrue(defaultSettings.enableFlickerProtection)
+        assertFalse(defaultSettings.enableLockScreenFlickerProtection)
+
+        // Home Screen (isKeyguardLocked = false) uses full-bleed #000000 flicker mask by default
+        assertTrue(defaultSettings.shouldUseFlickerProtection(isKeyguardLocked = false))
+
+        // Lock Screen (isKeyguardLocked = true) bypasses black overlay by default so SystemUI transitions straight to AOD
+        assertFalse(defaultSettings.shouldUseFlickerProtection(isKeyguardLocked = true))
+
+        // Enabling Lock Screen flicker mask explicitly activates it on Lock Screen too
+        val lockMaskEnabled = defaultSettings.copy(enableLockScreenFlickerProtection = true)
+        assertTrue(lockMaskEnabled.shouldUseFlickerProtection(isKeyguardLocked = false))
+        assertTrue(lockMaskEnabled.shouldUseFlickerProtection(isKeyguardLocked = true))
+
+        // Lock Screen flicker mask can be configured independently of Home Screen flicker protection
+        val onlyLockMaskEnabled = TapLockSettings(
+            enableFlickerProtection = false,
+            enableLockScreenFlickerProtection = true
+        )
+        assertFalse(onlyLockMaskEnabled.shouldUseFlickerProtection(isKeyguardLocked = false))
+        assertTrue(onlyLockMaskEnabled.shouldUseFlickerProtection(isKeyguardLocked = true))
+
+        // Both disabled -> neither uses the flicker mask
+        val bothDisabled = TapLockSettings(
+            enableFlickerProtection = false,
+            enableLockScreenFlickerProtection = false
+        )
+        assertFalse(bothDisabled.shouldUseFlickerProtection(isKeyguardLocked = false))
+        assertFalse(bothDisabled.shouldUseFlickerProtection(isKeyguardLocked = true))
+    }
+
+    @Test
+    fun `BuildConfig reflects version 1_0_2 and versionCode 3`() {
+        assertEquals(3, BuildConfig.VERSION_CODE)
+        assertEquals("1.0.2", BuildConfig.VERSION_NAME)
         assertEquals("com.pixeltaplock", BuildConfig.APPLICATION_ID)
     }
 }

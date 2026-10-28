@@ -606,17 +606,26 @@ class TapAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Executes the QHD+ Edge-to-Edge Flicker Protection Overlay followed by
-     * GLOBAL_ACTION_LOCK_SCREEN (preserving biometric fingerprint & face unlock).
+     * Executes GLOBAL_ACTION_LOCK_SCREEN (preserving biometric fingerprint & face unlock).
+     * When locking from the Home Screen (or if Lock Screen flicker mask is explicitly enabled),
+     * attaches the QHD+ Edge-to-Edge Flicker Protection Overlay first. When already on the
+     * Lock Screen with [TapLockSettings.enableLockScreenFlickerProtection] off (default),
+     * bypasses the black overlay so SystemUI transitions directly into Always-On Display (AOD).
      */
     fun executeFlickerProtectedLock() {
         cancelPendingDoubleTapLock()
         firstOutsideTap = null
         val settings = currentSettings
+        val isLocked = try {
+            keyguardManager.isKeyguardLocked
+        } catch (_: Exception) {
+            false
+        }
+        val useFlickerProtection = settings.shouldUseFlickerProtection(isKeyguardLocked = isLocked)
         val controller = flickerController
         if (controller != null) {
             controller.executeLockWithFlickerProtection(
-                enableFlickerProtection = settings.enableFlickerProtection,
+                enableFlickerProtection = useFlickerProtection,
                 preLockDelayMs = settings.clampedPreLockBlackoutDelayMs,
                 postLockHoldMs = settings.clampedPostLockHoldDurationMs,
                 performLockAction = {
