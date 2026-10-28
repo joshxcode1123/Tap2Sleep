@@ -1,5 +1,7 @@
 package com.pixeltaplock
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -19,7 +21,7 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
-import android.view.animation.LinearInterpolator
+import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
 import androidx.core.view.doOnPreDraw
@@ -313,22 +315,6 @@ class FlickerProtectionOverlayController(
         mainHandler.removeCallbacks(hardSafetyRemoveRunnable)
         mainHandler.postDelayed(hardSafetyRemoveRunnable, hardSafetyTimeoutMs)
 
-        val startFadeAnimationIfPresent = {
-            if (snapshotBitmap != null && clampedFadeMs > 0L && activeFadeAnimator == null) {
-                val animator = ValueAnimator.ofFloat(1.0f, 0.0f).apply {
-                    duration = clampedFadeMs
-                    interpolator = LinearInterpolator()
-                    addUpdateListener { va ->
-                        val alphaVal = va.animatedValue as Float
-                        activeSnapshotImageView?.alpha = alphaVal
-                    }
-                }
-                activeFadeAnimator = animator
-                animator.start()
-            }
-        }
-
-        // Step 2: Wait for first frame draw + preLockDelayMs before firing GLOBAL_ACTION_LOCK_SCREEN
         var lockActionFired = false
         val fireLockOnce = {
             if (!lockActionFired && isLockSequenceInFlight && activeOverlayView != null) {
@@ -351,8 +337,29 @@ class FlickerProtectionOverlayController(
             }
         }
 
+        val startFadeAnimationIfPresent = {
+            if (snapshotBitmap != null && clampedFadeMs > 0L && activeFadeAnimator == null) {
+                val animator = ValueAnimator.ofFloat(1.0f, 0.0f).apply {
+                    duration = clampedFadeMs
+                    interpolator = DecelerateInterpolator(1.2f)
+                    addUpdateListener { va ->
+                        val alphaVal = va.animatedValue as Float
+                        activeSnapshotImageView?.alpha = alphaVal
+                    }
+                    addListener(object : AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(animation: Animator) {
+                            activeSnapshotImageView?.alpha = 0.0f
+                            fireLockOnce()
+                        }
+                    })
+                }
+                activeFadeAnimator = animator
+                animator.start()
+            }
+        }
+
         overlayView.doOnPreDraw {
-            // View traversal reached pre-draw; cancel the pre-draw fallback timer so it cannot cut short preLockDelayMs
+            // View traversal reached pre-draw; cancel the pre-draw fallback timer
             pendingPreDrawFallbackRunnable?.let { mainHandler.removeCallbacks(it) }
             pendingPreDrawFallbackRunnable = null
 
@@ -360,16 +367,26 @@ class FlickerProtectionOverlayController(
                 if (!isLockSequenceInFlight || activeOverlayView == null) {
                     return@postFrameCallback
                 }
-                startFadeAnimationIfPresent()
-                if (clampedPreDelayMs <= 0L) {
-                    fireLockOnce()
-                } else {
-                    val delayRunnable = Runnable {
+                if (snapshotBitmap != null && clampedFadeMs > 0L) {
+                    startFadeAnimationIfPresent()
+                    // Fallback timer if animator onAnimationEnd fails to fire
+                    val fallbackDelayRunnable = Runnable {
                         pendingPreLockDelayRunnable = null
                         fireLockOnce()
                     }
-                    pendingPreLockDelayRunnable = delayRunnable
-                    mainHandler.postDelayed(delayRunnable, clampedPreDelayMs)
+                    pendingPreLockDelayRunnable = fallbackDelayRunnable
+                    mainHandler.postDelayed(fallbackDelayRunnable, clampedFadeMs + 100L)
+                } else {
+                    if (clampedPreDelayMs <= 0L) {
+                        fireLockOnce()
+                    } else {
+                        val delayRunnable = Runnable {
+                            pendingPreLockDelayRunnable = null
+                            fireLockOnce()
+                        }
+                        pendingPreLockDelayRunnable = delayRunnable
+                        mainHandler.postDelayed(delayRunnable, clampedPreDelayMs)
+                    }
                 }
             }
         }
@@ -377,14 +394,18 @@ class FlickerProtectionOverlayController(
         // Fallback only in case doOnPreDraw never fires due to a stalled WindowManager transaction
         val fallbackRunnable = Runnable {
             pendingPreDrawFallbackRunnable = null
-            startFadeAnimationIfPresent()
+            if (snapshotBitmap != null && clampedFadeMs > 0L) {
+                startFadeAnimationIfPresent()
+            }
             fireLockOnce()
         }
         pendingPreDrawFallbackRunnable = fallbackRunnable
-        mainHandler.postDelayed(
-            fallbackRunnable,
+        val initialFallbackTimeout = if (snapshotBitmap != null && clampedFadeMs > 0L) {
+            clampedFadeMs + PRE_DRAW_FALLBACK_SLACK_MS
+        } else {
             clampedPreDelayMs + PRE_DRAW_FALLBACK_SLACK_MS
-        )
+        }
+        mainHandler.postDelayed(fallbackRunnable, initialFallbackTimeout)
     }
 
     private fun schedulePostOffHoldRemoval(holdDurationMs: Long) {

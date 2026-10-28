@@ -117,8 +117,6 @@ class TapAccessibilityService : AccessibilityService() {
                 Intent.ACTION_USER_PRESENT -> {
                     lastUserPresentUptimeMillis = nowUptime
                     lastScreenWakeUptimeMillis = 0L
-                    firstOutsideTap = null
-                    cancelPendingDoubleTapLock()
                 }
                 Intent.ACTION_SCREEN_ON -> {
                     lastUserPresentUptimeMillis = 0L
@@ -185,9 +183,20 @@ class TapAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
 
+        val now = SystemClock.uptimeMillis()
+        val pkgStr = event.packageName?.toString()
+
+        // If the launcher window state changed, mark device as unlocked immediately
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            pkgStr != null && pkgStr in resolveAllowedLauncherPackages()
+        ) {
+            lastUserPresentUptimeMillis = now
+            lastScreenWakeUptimeMillis = 0L
+        }
+
         val isInteractiveEvent = BlankSpaceHitTester.isInterruptingAccessibilityEvent(
             eventType = event.eventType,
-            packageName = event.packageName?.toString(),
+            packageName = pkgStr,
             className = event.className?.toString(),
             contentDescription = event.contentDescription?.toString(),
             ownPackageName = packageName,
@@ -196,11 +205,8 @@ class TapAccessibilityService : AccessibilityService() {
         )
 
         if (isInteractiveEvent) {
-            val now = SystemClock.uptimeMillis()
             val isSystemUiUnlockTransition = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
-                event.packageName == BlankSpaceHitTester.SYSTEM_UI_PACKAGE &&
-                lastUserPresentUptimeMillis > 0L &&
-                (now - lastUserPresentUptimeMillis) < UNLOCK_TRANSITION_WINDOW_MS
+                pkgStr == BlankSpaceHitTester.SYSTEM_UI_PACKAGE
 
             if (!isSystemUiUnlockTransition) {
                 lastInteractiveEventUptimeMillis = now
@@ -395,6 +401,11 @@ class TapAccessibilityService : AccessibilityService() {
         }
 
         val settings = currentSettings
+        if (!isEligibleScreenContext(settings, allowTransitionCandidate = true)) {
+            firstOutsideTap = null
+            return
+        }
+
         val isLocked = isDeviceKeyguardLocked(nowUptime)
         val wakeGraceMs = settings.effectiveWakeGraceMs(isKeyguardLocked = isLocked)
 
@@ -409,11 +420,6 @@ class TapAccessibilityService : AccessibilityService() {
                 gracePeriodMs = wakeGraceMs
             )
         ) {
-            firstOutsideTap = null
-            return
-        }
-
-        if (!isEligibleScreenContext(settings, allowTransitionCandidate = true)) {
             firstOutsideTap = null
             return
         }
@@ -488,6 +494,11 @@ class TapAccessibilityService : AccessibilityService() {
                 return@Runnable
             }
             val debounceSettings = currentSettings
+            val isRecentUnlock = lastUserPresentUptimeMillis > 0L &&
+                (debounceNowUptime - lastUserPresentUptimeMillis) < UNLOCK_TRANSITION_WINDOW_MS
+            if (!isEligibleScreenContext(debounceSettings, allowTransitionCandidate = isRecentUnlock)) {
+                return@Runnable
+            }
             val debounceIsLocked = isDeviceKeyguardLocked(debounceNowUptime)
             val debounceWakeGraceMs = debounceSettings.effectiveWakeGraceMs(
                 isKeyguardLocked = debounceIsLocked
@@ -510,11 +521,6 @@ class TapAccessibilityService : AccessibilityService() {
                 lastInteractiveEventUptimeMillis = lastInteractiveEventUptimeMillis
             )
             if (interrupted) {
-                return@Runnable
-            }
-            val isRecentUnlock = lastUserPresentUptimeMillis > 0L &&
-                (debounceNowUptime - lastUserPresentUptimeMillis) < UNLOCK_TRANSITION_WINDOW_MS
-            if (!isEligibleScreenContext(debounceSettings, allowTransitionCandidate = isRecentUnlock)) {
                 return@Runnable
             }
             executeFlickerProtectedLock()
@@ -584,6 +590,39 @@ class TapAccessibilityService : AccessibilityService() {
         val maxBounds = windowManager.maximumWindowMetrics.bounds
 
         val now = SystemClock.uptimeMillis()
+        val isRecentUnlock = lastUserPresentUptimeMillis > 0L &&
+            (now - lastUserPresentUptimeMillis) < UNLOCK_TRANSITION_WINDOW_MS
+
+        val effectiveActiveRootPkg = if (activeRootPkg == BlankSpaceHitTester.SYSTEM_UI_PACKAGE) {
+            val hasObscuringShade = windowsList?.any { win ->
+                win.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_SYSTEM &&
+                    maxBounds.height() > 0 &&
+                    (win.isFocused || win.isActive || {
+                        val r = Rect()
+                        win.getBoundsInScreen(r)
+                        (r.bottom - r.top) > (maxBounds.height() * 0.35f).toInt()
+                    }())
+            } ?: false
+            if (!hasObscuringShade) null else activeRootPkg
+        } else {
+            activeRootPkg
+        }
+
+        if (settings.enableHomeScreen) {
+            val isHome = BlankSpaceHitTester.isHomeWorkspaceUnobscured(
+                windows = windowsList,
+                activeRootPackageName = effectiveActiveRootPkg,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = maxBounds.height(),
+                allowTransitionCandidate = allowTransitionCandidate || isRecentUnlock
+            )
+            if (isHome) {
+                lastUserPresentUptimeMillis = now
+                lastScreenWakeUptimeMillis = 0L
+                return true
+            }
+        }
+
         val isLocked = isDeviceKeyguardLocked(now)
         if (isLocked) {
             if (!settings.enableLockScreen) {
@@ -609,35 +648,7 @@ class TapAccessibilityService : AccessibilityService() {
             )
         }
 
-        if (!settings.enableHomeScreen) {
-            return false
-        }
-
-        val isRecentUnlock = lastUserPresentUptimeMillis > 0L &&
-            (now - lastUserPresentUptimeMillis) < UNLOCK_TRANSITION_WINDOW_MS
-
-        val effectiveActiveRootPkg = if (isRecentUnlock && activeRootPkg == BlankSpaceHitTester.SYSTEM_UI_PACKAGE) {
-            val hasObscuringShade = windowsList?.any { win ->
-                win.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_SYSTEM &&
-                    maxBounds.height() > 0 &&
-                    (win.isFocused || win.isActive || {
-                        val r = Rect()
-                        win.getBoundsInScreen(r)
-                        (r.bottom - r.top) > (maxBounds.height() * 0.35f).toInt()
-                    }())
-            } ?: false
-            if (!hasObscuringShade) null else activeRootPkg
-        } else {
-            activeRootPkg
-        }
-
-        return BlankSpaceHitTester.isHomeWorkspaceUnobscured(
-            windows = windowsList,
-            activeRootPackageName = effectiveActiveRootPkg,
-            allowedLauncherPackages = allowedLaunchers,
-            screenHeightPx = maxBounds.height(),
-            allowTransitionCandidate = allowTransitionCandidate || isRecentUnlock
-        )
+        return false
     }
 
     private var lastLauncherResolveUptimeMs: Long = 0L

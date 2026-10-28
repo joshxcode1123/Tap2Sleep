@@ -1631,4 +1631,38 @@ class PixelTapLockUnitTest {
             )
         )
     }
+
+    @Test
+    fun `Home Screen candidate is rejected if SystemUI window expands to shade height`() {
+        val allowedLaunchers = setOf(
+            "com.google.android.apps.nexuslauncher",
+            "com.android.launcher3"
+        )
+        val visibleLauncher = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = false,
+            isFocused = false,
+            packageName = "com.google.android.apps.nexuslauncher",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2992)
+        )
+        val expandedShade = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_SYSTEM,
+            isActive = true,
+            isFocused = true,
+            packageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2000)
+        )
+
+        val shadeWindows = listOf(expandedShade, visibleLauncher)
+
+        assertFalse(
+            BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = shadeWindows,
+                activeRootPackageName = null,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = 2992,
+                allowTransitionCandidate = true
+            )
+        )
+    }
 }
