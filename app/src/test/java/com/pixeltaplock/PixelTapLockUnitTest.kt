@@ -2426,4 +2426,127 @@ class PixelTapLockUnitTest {
             )
         )
     }
+
+    @Test
+    fun `isOverviewSnapshotShowing rejects task cards translated horizontally offscreen in carousel`() {
+        val screenWidth = 1344
+        val screenHeight = 2992
+        val rootDragLayer = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, screenWidth, screenHeight),
+            className = "com.android.launcher3.dragndrop.DragLayer",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/drag_layer",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = 1
+        )
+
+        // Task card translated completely offscreen to the right in the horizontal carousel
+        val offscreenRightTask = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(1344, 500, 2688, 2500),
+            className = "com.android.quickstep.views.TaskView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/task_view",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = true,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val rootRight = rootDragLayer.copy(children = listOf(offscreenRightTask))
+        assertFalse(
+            BlankSpaceHitTester.isOverviewSnapshotShowing(
+                root = rootRight,
+                screenWidthPx = screenWidth,
+                screenHeightPx = screenHeight
+            )
+        )
+
+        // Task card translated completely offscreen to the left
+        val offscreenLeftTask = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(-1344, 500, 0, 2500),
+            className = "com.android.quickstep.views.TaskView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/task_view",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = true,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val rootLeft = rootDragLayer.copy(children = listOf(offscreenLeftTask))
+        assertFalse(
+            BlankSpaceHitTester.isOverviewSnapshotShowing(
+                root = rootLeft,
+                screenWidthPx = screenWidth,
+                screenHeightPx = screenHeight
+            )
+        )
+
+        // Task card only slightly peeking from right edge (< 20% visible width: 50px out of 1344)
+        val peekingRightTask = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(1294, 500, 2600, 2500),
+            className = "com.android.quickstep.views.TaskView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/task_view",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = true,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val rootPeeking = rootDragLayer.copy(children = listOf(peekingRightTask))
+        assertFalse(
+            BlankSpaceHitTester.isOverviewSnapshotShowing(
+                root = rootPeeking,
+                screenWidthPx = screenWidth,
+                screenHeightPx = screenHeight
+            )
+        )
+
+        // Task card centered and visible (> 20% visible width and height)
+        val centeredTask = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(100, 500, 1244, 2500),
+            className = "com.android.quickstep.views.TaskView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/task_view",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = true,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val rootCentered = rootDragLayer.copy(children = listOf(centeredTask))
+        assertTrue(
+            BlankSpaceHitTester.isOverviewSnapshotShowing(
+                root = rootCentered,
+                screenWidthPx = screenWidth,
+                screenHeightPx = screenHeight
+            )
+        )
+    }
+
+    @Test
+    fun `isOverviewClassOrId accurately identifies Overview classes and view IDs`() {
+        assertTrue(BlankSpaceHitTester.isOverviewClassOrId("com.android.quickstep.views.RecentsView"))
+        assertTrue(BlankSpaceHitTester.isOverviewClassOrId("com.android.quickstep.views.TaskView"))
+        assertTrue(BlankSpaceHitTester.isOverviewClassOrId("com.android.quickstep.views.OverviewActionsView"))
+        assertTrue(BlankSpaceHitTester.isOverviewClassOrId(null, "com.google.android.apps.nexuslauncher:id/overview_panel"))
+        assertTrue(BlankSpaceHitTester.isOverviewClassOrId(null, "com.google.android.apps.nexuslauncher:id/task_view"))
+        assertTrue(BlankSpaceHitTester.isOverviewClassOrId(null, "com.google.android.apps.nexuslauncher:id/clear_all"))
+
+        // Non-overview elements
+        assertFalse(BlankSpaceHitTester.isOverviewClassOrId("com.android.launcher3.CellLayout"))
+        assertFalse(BlankSpaceHitTester.isOverviewClassOrId("com.android.launcher3.Workspace"))
+        assertFalse(BlankSpaceHitTester.isOverviewClassOrId("com.google.android.apps.nexuslauncher.NexusLauncherActivity"))
+        assertFalse(BlankSpaceHitTester.isOverviewClassOrId(null, "com.google.android.apps.nexuslauncher:id/workspace"))
+        assertFalse(BlankSpaceHitTester.isOverviewClassOrId(null, "com.google.android.apps.nexuslauncher:id/cell_layout"))
+    }
 }

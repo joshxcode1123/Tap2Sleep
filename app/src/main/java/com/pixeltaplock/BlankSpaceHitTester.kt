@@ -993,17 +993,32 @@ object BlankSpaceHitTester {
     }
 
     /**
+     * Helper to determine whether a given class name or viewId matches Overview / Recents.
+     */
+    fun isOverviewClassOrId(className: String?, viewIdResourceName: String? = null): Boolean {
+        val cls = className.orEmpty()
+        val viewId = viewIdResourceName.orEmpty().lowercase()
+        return OVERVIEW_CLASS_PATTERNS.any { cls.contains(it, ignoreCase = true) } ||
+            (viewId.isNotEmpty() && OVERVIEW_ID_PATTERNS.any { viewId.contains(it) })
+    }
+
+    /**
      * Returns true if the Overview / Recents task switcher screen (suspended apps page) is currently open and visible
      * to the user, ensuring taps while viewing suspended apps or dismissing the view are never registered
      * as Home Screen blank-space double taps.
      */
-    fun isOverviewShowing(rootNode: AccessibilityNodeInfo?, screenHeightPx: Int = 0): Boolean {
+    fun isOverviewShowing(
+        rootNode: AccessibilityNodeInfo?,
+        screenWidthPx: Int = 0,
+        screenHeightPx: Int = 0
+    ): Boolean {
         if (rootNode == null) return false
-        return checkLiveOverviewRecursive(rootNode, screenHeightPx, depth = 0)
+        return checkLiveOverviewRecursive(rootNode, screenWidthPx, screenHeightPx, depth = 0)
     }
 
     private fun checkLiveOverviewRecursive(
         node: AccessibilityNodeInfo,
+        screenWidthPx: Int,
         screenHeightPx: Int,
         depth: Int
     ): Boolean {
@@ -1015,6 +1030,7 @@ object BlankSpaceHitTester {
                 className = node.className?.toString(),
                 viewIdResourceName = node.viewIdResourceName,
                 bounds = bounds,
+                screenWidthPx = screenWidthPx,
                 screenHeightPx = screenHeightPx
             )
         ) {
@@ -1024,7 +1040,7 @@ object BlankSpaceHitTester {
         val count = node.childCount
         for (i in 0 until count) {
             val child = node.getChild(i) ?: continue
-            if (checkLiveOverviewRecursive(child, screenHeightPx, depth + 1)) {
+            if (checkLiveOverviewRecursive(child, screenWidthPx, screenHeightPx, depth + 1)) {
                 return true
             }
         }
@@ -1034,13 +1050,18 @@ object BlankSpaceHitTester {
     /**
      * Same Overview / Recents detection over [NodeSnapshot] for deterministic unit testing.
      */
-    fun isOverviewSnapshotShowing(root: NodeSnapshot?, screenHeightPx: Int = 0): Boolean {
+    fun isOverviewSnapshotShowing(
+        root: NodeSnapshot?,
+        screenWidthPx: Int = 0,
+        screenHeightPx: Int = 0
+    ): Boolean {
         if (root == null) return false
-        return checkSnapshotOverviewRecursive(root, screenHeightPx, depth = 0)
+        return checkSnapshotOverviewRecursive(root, screenWidthPx, screenHeightPx, depth = 0)
     }
 
     private fun checkSnapshotOverviewRecursive(
         node: NodeSnapshot,
+        screenWidthPx: Int,
         screenHeightPx: Int,
         depth: Int
     ): Boolean {
@@ -1050,6 +1071,7 @@ object BlankSpaceHitTester {
                 className = node.className,
                 viewIdResourceName = node.viewIdResourceName,
                 bounds = node.boundsInScreen,
+                screenWidthPx = screenWidthPx,
                 screenHeightPx = screenHeightPx
             )
         ) {
@@ -1057,7 +1079,7 @@ object BlankSpaceHitTester {
         }
 
         for (child in node.children) {
-            if (checkSnapshotOverviewRecursive(child, screenHeightPx, depth + 1)) {
+            if (checkSnapshotOverviewRecursive(child, screenWidthPx, screenHeightPx, depth + 1)) {
                 return true
             }
         }
@@ -1068,7 +1090,8 @@ object BlankSpaceHitTester {
         className: String?,
         viewIdResourceName: String?,
         bounds: Rect,
-        screenHeightPx: Int
+        screenWidthPx: Int = 0,
+        screenHeightPx: Int = 0
     ): Boolean {
         val cls = className.orEmpty()
         val viewId = viewIdResourceName.orEmpty().lowercase()
@@ -1081,6 +1104,20 @@ object BlankSpaceHitTester {
 
         if (isRectEmpty(bounds)) {
             return false
+        }
+
+        if (screenWidthPx > 0) {
+            // Must be within visible screen horizontal bounds (not translated offscreen)
+            if (bounds.left >= screenWidthPx || bounds.right <= 0) {
+                return false
+            }
+            val visibleLeft = maxOf(bounds.left, 0)
+            val visibleRight = minOf(bounds.right, screenWidthPx)
+            val visibleWidth = maxOf(0, visibleRight - visibleLeft)
+            // Must occupy at least 20% of screen width to be considered actively showing/opened
+            if (visibleWidth < (screenWidthPx * 0.20f).toInt()) {
+                return false
+            }
         }
 
         if (screenHeightPx > 0) {
@@ -1110,11 +1147,12 @@ object BlankSpaceHitTester {
         windows: List<AccessibilityWindowInfo>?,
         activeRootNode: AccessibilityNodeInfo?,
         allowedLauncherPackages: Set<String>,
-        screenHeightPx: Int
+        screenWidthPx: Int = 0,
+        screenHeightPx: Int = 0
     ): Boolean {
         val activePkg = activeRootNode?.packageName?.toString()
         if (!activePkg.isNullOrEmpty() && (activePkg in allowedLauncherPackages || activePkg == SYSTEM_UI_PACKAGE)) {
-            if (isOverviewShowing(activeRootNode, screenHeightPx)) {
+            if (isOverviewShowing(activeRootNode, screenWidthPx, screenHeightPx)) {
                 return true
             }
         }
@@ -1142,7 +1180,7 @@ object BlankSpaceHitTester {
                             titleStr.contains("overview", ignoreCase = true))) ||
                         (activePkg != null && (activePkg in allowedLauncherPackages || activePkg == SYSTEM_UI_PACKAGE))
                     if (isCandidate) {
-                        if (isOverviewShowing(root, screenHeightPx)) {
+                        if (isOverviewShowing(root, screenWidthPx, screenHeightPx)) {
                             return true
                         }
                     }
@@ -1151,7 +1189,7 @@ object BlankSpaceHitTester {
         }
 
         if (activeRootNode != null && (activePkg == null || activePkg in allowedLauncherPackages || activePkg == SYSTEM_UI_PACKAGE)) {
-            if (isOverviewShowing(activeRootNode, screenHeightPx)) {
+            if (isOverviewShowing(activeRootNode, screenWidthPx, screenHeightPx)) {
                 return true
             }
         }
@@ -1166,11 +1204,12 @@ object BlankSpaceHitTester {
         windows: List<WindowSnapshot>?,
         activeRootNode: NodeSnapshot?,
         allowedLauncherPackages: Set<String>,
-        screenHeightPx: Int
+        screenWidthPx: Int = 0,
+        screenHeightPx: Int = 0
     ): Boolean {
         val activePkg = activeRootNode?.packageName
         if (!activePkg.isNullOrEmpty() && (activePkg in allowedLauncherPackages || activePkg == SYSTEM_UI_PACKAGE)) {
-            if (isOverviewSnapshotShowing(activeRootNode, screenHeightPx)) {
+            if (isOverviewSnapshotShowing(activeRootNode, screenWidthPx, screenHeightPx)) {
                 return true
             }
         }
@@ -1190,7 +1229,7 @@ object BlankSpaceHitTester {
                             titleStr.contains("overview", ignoreCase = true))) ||
                         (activePkg != null && (activePkg in allowedLauncherPackages || activePkg == SYSTEM_UI_PACKAGE))
                     if (isCandidate) {
-                        if (isOverviewSnapshotShowing(root, screenHeightPx)) {
+                        if (isOverviewSnapshotShowing(root, screenWidthPx, screenHeightPx)) {
                             return true
                         }
                     }
@@ -1199,7 +1238,7 @@ object BlankSpaceHitTester {
         }
 
         if (activeRootNode != null && (activePkg == null || activePkg in allowedLauncherPackages || activePkg == SYSTEM_UI_PACKAGE)) {
-            if (isOverviewSnapshotShowing(activeRootNode, screenHeightPx)) {
+            if (isOverviewSnapshotShowing(activeRootNode, screenWidthPx, screenHeightPx)) {
                 return true
             }
         }

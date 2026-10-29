@@ -87,9 +87,6 @@ class TapAccessibilityService : AccessibilityService() {
     private var lastObservedInteractive: Boolean = true
 
     @Volatile
-    private var wasOverviewShowing: Boolean = false
-
-    @Volatile
     private var lastOverviewDismissUptimeMillis: Long = 0L
 
     private var isWakeTrackingRegistered = false
@@ -200,17 +197,16 @@ class TapAccessibilityService : AccessibilityService() {
             lastScreenWakeUptimeMillis = 0L
         }
 
-        // If exiting/dismissing the Overview screen or window state changes for overview
+        // If Overview screen opened, changed, or dismissed
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
             event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED
         ) {
             val cls = event.className?.toString().orEmpty()
-            if (wasOverviewShowing ||
+            if (BlankSpaceHitTester.isOverviewClassOrId(cls) ||
                 cls.contains("Recents", ignoreCase = true) ||
                 cls.contains("Overview", ignoreCase = true) ||
                 cls.contains("TaskView", ignoreCase = true)
             ) {
-                wasOverviewShowing = false
                 lastOverviewDismissUptimeMillis = now
                 firstOutsideTap = null
                 cancelPendingDoubleTapLock()
@@ -264,7 +260,6 @@ class TapAccessibilityService : AccessibilityService() {
         cachedAllowedLauncherPackages = null
         lastLauncherResolveUptimeMs = 0L
         lastUserPresentUptimeMillis = 0L
-        wasOverviewShowing = false
         lastOverviewDismissUptimeMillis = 0L
         if (instance === this) {
             instance = null
@@ -428,29 +423,29 @@ class TapAccessibilityService : AccessibilityService() {
         // Fast-check whether Overview / Recents (suspended apps page) is showing or was just dismissed
         val windowsList = try { windows } catch (_: Exception) { null }
         val activeRoot = try { rootInActiveWindow } catch (_: Exception) { null }
-        val screenHeight = windowManager.maximumWindowMetrics.bounds.height()
+        val maxBounds = windowManager.maximumWindowMetrics.bounds
+        val screenWidth = maxBounds.width()
+        val screenHeight = maxBounds.height()
         val allowedLaunchers = resolveAllowedLauncherPackages()
 
         val isOverviewNow = BlankSpaceHitTester.isOverviewShowingInWindows(
             windows = windowsList,
             activeRootNode = activeRoot,
             allowedLauncherPackages = allowedLaunchers,
+            screenWidthPx = screenWidth,
             screenHeightPx = screenHeight
         )
 
         if (isOverviewNow) {
-            wasOverviewShowing = true
-            firstOutsideTap = null
-            return
-        }
-
-        if (wasOverviewShowing) {
-            wasOverviewShowing = false
+            // Touch occurred while Overview / Recents is open.
+            // Any tap in Overview (including the tap to dismiss Overview) must be ignored
+            // and must never count as a Home Screen tap.
             lastOverviewDismissUptimeMillis = nowUptime
             firstOutsideTap = null
             return
         }
 
+        // Dismissal grace window: ignore touches within OVERVIEW_DISMISS_GRACE_MS after dismissing Overview
         if (lastOverviewDismissUptimeMillis > 0L &&
             (nowUptime - lastOverviewDismissUptimeMillis) < OVERVIEW_DISMISS_GRACE_MS
         ) {
@@ -688,6 +683,7 @@ class TapAccessibilityService : AccessibilityService() {
                         windows = windowsList,
                         activeRootNode = activeRootNode,
                         allowedLauncherPackages = allowedLaunchers,
+                        screenWidthPx = maxBounds.width(),
                         screenHeightPx = maxBounds.height()
                     )
                 ) {
