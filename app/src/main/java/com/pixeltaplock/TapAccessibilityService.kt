@@ -86,6 +86,12 @@ class TapAccessibilityService : AccessibilityService() {
     @Volatile
     private var lastObservedInteractive: Boolean = true
 
+    @Volatile
+    private var wasOverviewShowing: Boolean = false
+
+    @Volatile
+    private var lastOverviewDismissUptimeMillis: Long = 0L
+
     private var isWakeTrackingRegistered = false
 
     private fun isDeviceKeyguardLocked(nowUptime: Long): Boolean {
@@ -194,6 +200,23 @@ class TapAccessibilityService : AccessibilityService() {
             lastScreenWakeUptimeMillis = 0L
         }
 
+        // If exiting/dismissing the Overview screen or window state changes for overview
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+            event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED
+        ) {
+            val cls = event.className?.toString().orEmpty()
+            if (wasOverviewShowing ||
+                cls.contains("Recents", ignoreCase = true) ||
+                cls.contains("Overview", ignoreCase = true) ||
+                cls.contains("TaskView", ignoreCase = true)
+            ) {
+                wasOverviewShowing = false
+                lastOverviewDismissUptimeMillis = now
+                firstOutsideTap = null
+                cancelPendingDoubleTapLock()
+            }
+        }
+
         val isInteractiveEvent = BlankSpaceHitTester.isInterruptingAccessibilityEvent(
             eventType = event.eventType,
             packageName = pkgStr,
@@ -241,6 +264,8 @@ class TapAccessibilityService : AccessibilityService() {
         cachedAllowedLauncherPackages = null
         lastLauncherResolveUptimeMs = 0L
         lastUserPresentUptimeMillis = 0L
+        wasOverviewShowing = false
+        lastOverviewDismissUptimeMillis = 0L
         if (instance === this) {
             instance = null
         }
@@ -396,6 +421,39 @@ class TapAccessibilityService : AccessibilityService() {
             // now and discard this tap so a second tap during the AOD -> Lock Screen transition
             // never pairs with it or locks the screen back off.
             lastScreenWakeUptimeMillis = maxOf(lastScreenWakeUptimeMillis, uptimeMillis, nowUptime)
+            firstOutsideTap = null
+            return
+        }
+
+        // Fast-check whether Overview / Recents (suspended apps page) is showing or was just dismissed
+        val windowsList = try { windows } catch (_: Exception) { null }
+        val activeRoot = try { rootInActiveWindow } catch (_: Exception) { null }
+        val screenHeight = windowManager.maximumWindowMetrics.bounds.height()
+        val allowedLaunchers = resolveAllowedLauncherPackages()
+
+        val isOverviewNow = BlankSpaceHitTester.isOverviewShowingInWindows(
+            windows = windowsList,
+            activeRootNode = activeRoot,
+            allowedLauncherPackages = allowedLaunchers,
+            screenHeightPx = screenHeight
+        )
+
+        if (isOverviewNow) {
+            wasOverviewShowing = true
+            firstOutsideTap = null
+            return
+        }
+
+        if (wasOverviewShowing) {
+            wasOverviewShowing = false
+            lastOverviewDismissUptimeMillis = nowUptime
+            firstOutsideTap = null
+            return
+        }
+
+        if (lastOverviewDismissUptimeMillis > 0L &&
+            (nowUptime - lastOverviewDismissUptimeMillis) < OVERVIEW_DISMISS_GRACE_MS
+        ) {
             firstOutsideTap = null
             return
         }
@@ -618,6 +676,15 @@ class TapAccessibilityService : AccessibilityService() {
             )
             if (isHome) {
                 if (BlankSpaceHitTester.isAllAppsDrawerShowingInWindows(
+                        windows = windowsList,
+                        activeRootNode = activeRootNode,
+                        allowedLauncherPackages = allowedLaunchers,
+                        screenHeightPx = maxBounds.height()
+                    )
+                ) {
+                    return false
+                }
+                if (BlankSpaceHitTester.isOverviewShowingInWindows(
                         windows = windowsList,
                         activeRootNode = activeRootNode,
                         allowedLauncherPackages = allowedLaunchers,
@@ -871,6 +938,7 @@ class TapAccessibilityService : AccessibilityService() {
     }
 
     companion object {
+        const val OVERVIEW_DISMISS_GRACE_MS = 150L
         const val UNLOCK_TRANSITION_WINDOW_MS = 2000L
         const val SCREENSHOT_TIMEOUT_MS = 150L
         const val LAUNCHER_CACHE_TTL_MS = 5000L

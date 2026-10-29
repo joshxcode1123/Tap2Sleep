@@ -134,8 +134,35 @@ object BlankSpaceHitTester {
         "notification_panel",
         "notification_stack",
         "shared_notification_container",
-        "shade_window",
-        "overview_panel"
+        "shade_window"
+    )
+
+    private val OVERVIEW_CLASS_PATTERNS = listOf(
+        "RecentsView",
+        "OverviewPanel",
+        "TaskView",
+        "TaskThumbnailView",
+        "OverviewActionsView",
+        "ClearAllButton",
+        "LauncherRecentsView",
+        "FallbackRecentsView",
+        "SplitPlaceholderView",
+        "SplitInstructionsView",
+        "DigitalWellBeingToast"
+    )
+
+    private val OVERVIEW_ID_PATTERNS = listOf(
+        "overview_panel",
+        "recents_view",
+        "task_view",
+        "task_thumbnail",
+        "snapshot",
+        "overview_actions_view",
+        "clear_all",
+        "clear_all_button",
+        "action_screenshot",
+        "action_split",
+        "action_select"
     )
 
     private val INTERACTIVE_WIDGET_HOST_PATTERNS = listOf(
@@ -289,6 +316,10 @@ object BlankSpaceHitTester {
                 val cls = className.orEmpty()
                 if (pkg == ownPackageName || cls.contains("PixelTapLock")) {
                     false
+                } else if (OVERVIEW_CLASS_PATTERNS.any { cls.contains(it, ignoreCase = true) } ||
+                    OVERVIEW_ID_PATTERNS.any { cls.contains(it, ignoreCase = true) }
+                ) {
+                    true
                 } else if (!pkg.isNullOrEmpty()) {
                     pkg !in allowedLauncherPackages
                 } else {
@@ -390,9 +421,11 @@ object BlankSpaceHitTester {
 
         val cls = node.className?.toString().orEmpty()
         val viewId = node.viewIdResourceName.orEmpty().lowercase()
-        // Any All Apps drawer container or element is an interactive app browser area, never blank space
+        // Any All Apps drawer container or Overview/Recents container or element is an interactive app browser area, never blank space
         if (ALL_APPS_CLASS_PATTERNS.any { cls.contains(it, ignoreCase = true) } ||
-            ALL_APPS_ID_PATTERNS.any { viewId.contains(it) }
+            ALL_APPS_ID_PATTERNS.any { viewId.contains(it) } ||
+            OVERVIEW_CLASS_PATTERNS.any { cls.contains(it, ignoreCase = true) } ||
+            OVERVIEW_ID_PATTERNS.any { viewId.contains(it) }
         ) {
             return true
         }
@@ -482,9 +515,11 @@ object BlankSpaceHitTester {
 
         val cls = node.className.orEmpty()
         val viewId = node.viewIdResourceName.orEmpty().lowercase()
-        // Any All Apps drawer container or element is an interactive app browser area, never blank space
+        // Any All Apps drawer container or Overview/Recents container or element is an interactive app browser area, never blank space
         if (ALL_APPS_CLASS_PATTERNS.any { cls.contains(it, ignoreCase = true) } ||
-            ALL_APPS_ID_PATTERNS.any { viewId.contains(it) }
+            ALL_APPS_ID_PATTERNS.any { viewId.contains(it) } ||
+            OVERVIEW_CLASS_PATTERNS.any { cls.contains(it, ignoreCase = true) } ||
+            OVERVIEW_ID_PATTERNS.any { viewId.contains(it) }
         ) {
             return true
         }
@@ -531,12 +566,14 @@ object BlankSpaceHitTester {
         val pkgLower = packageName.orEmpty().lowercase()
 
         // Never treat bouncer, camera, photo, or filmstrip nodes (even root or null-id ViewPagers)
-        // or All Apps app drawer containers as blank workspace containers
+        // or All Apps app drawer containers or Overview/Recents containers as blank workspace containers
         if (NON_BLANK_CONTAINER_ID_PATTERNS.any {
                 viewId.contains(it) || clsLower.contains(it) || pkgLower.contains(it)
             } ||
             ALL_APPS_CLASS_PATTERNS.any { cls.contains(it, ignoreCase = true) } ||
-            ALL_APPS_ID_PATTERNS.any { viewId.contains(it) }
+            ALL_APPS_ID_PATTERNS.any { viewId.contains(it) } ||
+            OVERVIEW_CLASS_PATTERNS.any { cls.contains(it, ignoreCase = true) } ||
+            OVERVIEW_ID_PATTERNS.any { viewId.contains(it) }
         ) {
             return false
         }
@@ -948,6 +985,221 @@ object BlankSpaceHitTester {
 
         if (activeRootNode != null && (activePkg == null || activePkg in allowedLauncherPackages)) {
             if (isAllAppsDrawerSnapshotShowing(activeRootNode, screenHeightPx)) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /**
+     * Returns true if the Overview / Recents task switcher screen (suspended apps page) is currently open and visible
+     * to the user, ensuring taps while viewing suspended apps or dismissing the view are never registered
+     * as Home Screen blank-space double taps.
+     */
+    fun isOverviewShowing(rootNode: AccessibilityNodeInfo?, screenHeightPx: Int = 0): Boolean {
+        if (rootNode == null) return false
+        return checkLiveOverviewRecursive(rootNode, screenHeightPx, depth = 0)
+    }
+
+    private fun checkLiveOverviewRecursive(
+        node: AccessibilityNodeInfo,
+        screenHeightPx: Int,
+        depth: Int
+    ): Boolean {
+        if (depth > 35 || !node.isVisibleToUser) return false
+
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        if (isOverviewNodeMatch(
+                className = node.className?.toString(),
+                viewIdResourceName = node.viewIdResourceName,
+                bounds = bounds,
+                screenHeightPx = screenHeightPx
+            )
+        ) {
+            return true
+        }
+
+        val count = node.childCount
+        for (i in 0 until count) {
+            val child = node.getChild(i) ?: continue
+            if (checkLiveOverviewRecursive(child, screenHeightPx, depth + 1)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * Same Overview / Recents detection over [NodeSnapshot] for deterministic unit testing.
+     */
+    fun isOverviewSnapshotShowing(root: NodeSnapshot?, screenHeightPx: Int = 0): Boolean {
+        if (root == null) return false
+        return checkSnapshotOverviewRecursive(root, screenHeightPx, depth = 0)
+    }
+
+    private fun checkSnapshotOverviewRecursive(
+        node: NodeSnapshot,
+        screenHeightPx: Int,
+        depth: Int
+    ): Boolean {
+        if (depth > 35 || !node.isVisibleToUser) return false
+
+        if (isOverviewNodeMatch(
+                className = node.className,
+                viewIdResourceName = node.viewIdResourceName,
+                bounds = node.boundsInScreen,
+                screenHeightPx = screenHeightPx
+            )
+        ) {
+            return true
+        }
+
+        for (child in node.children) {
+            if (checkSnapshotOverviewRecursive(child, screenHeightPx, depth + 1)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun isOverviewNodeMatch(
+        className: String?,
+        viewIdResourceName: String?,
+        bounds: Rect,
+        screenHeightPx: Int
+    ): Boolean {
+        val cls = className.orEmpty()
+        val viewId = viewIdResourceName.orEmpty().lowercase()
+        val matchesClass = OVERVIEW_CLASS_PATTERNS.any { cls.contains(it, ignoreCase = true) }
+        val matchesId = OVERVIEW_ID_PATTERNS.any { viewId.contains(it) }
+
+        if (!matchesClass && !matchesId) {
+            return false
+        }
+
+        if (isRectEmpty(bounds)) {
+            return false
+        }
+
+        if (screenHeightPx > 0) {
+            // Must be within visible screen vertical bounds (not translated offscreen)
+            if (bounds.top >= screenHeightPx || bounds.bottom <= 0) {
+                return false
+            }
+            val visibleTop = maxOf(bounds.top, 0)
+            val visibleBottom = minOf(bounds.bottom, screenHeightPx)
+            val visibleHeight = maxOf(0, visibleBottom - visibleTop)
+            // Must occupy at least 20% of screen height to be considered actively showing/opened
+            if (visibleHeight < (screenHeightPx * 0.20f).toInt()) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /**
+     * Check C (Overview / Recents Task Switcher Filter):
+     * Verifies across active and application windows whether the Overview / Recents screen is showing.
+     * Even if [activeRootNode] currently belongs to SystemUI (e.g. transparent status bar or overlay window
+     * with focus), this inspects the launcher and system windows to prevent false locks.
+     */
+    fun isOverviewShowingInWindows(
+        windows: List<AccessibilityWindowInfo>?,
+        activeRootNode: AccessibilityNodeInfo?,
+        allowedLauncherPackages: Set<String>,
+        screenHeightPx: Int
+    ): Boolean {
+        val activePkg = activeRootNode?.packageName?.toString()
+        if (!activePkg.isNullOrEmpty() && (activePkg in allowedLauncherPackages || activePkg == SYSTEM_UI_PACKAGE)) {
+            if (isOverviewShowing(activeRootNode, screenHeightPx)) {
+                return true
+            }
+        }
+
+        if (!windows.isNullOrEmpty()) {
+            for (window in windows) {
+                if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION ||
+                    window.type == AccessibilityWindowInfo.TYPE_SYSTEM
+                ) {
+                    val root = try {
+                        window.root
+                    } catch (_: Exception) {
+                        null
+                    } ?: continue
+                    val pkg = root.packageName?.toString()
+                    val titleStr = try {
+                        window.title?.toString()
+                    } catch (_: Exception) {
+                        null
+                    }
+                    val isCandidate = (!pkg.isNullOrEmpty() && (pkg in allowedLauncherPackages || pkg == SYSTEM_UI_PACKAGE)) ||
+                        (!titleStr.isNullOrEmpty() && (allowedLauncherPackages.any { titleStr.contains(it, ignoreCase = true) } ||
+                            titleStr.contains("launcher", ignoreCase = true) ||
+                            titleStr.contains("recents", ignoreCase = true) ||
+                            titleStr.contains("overview", ignoreCase = true))) ||
+                        (activePkg != null && (activePkg in allowedLauncherPackages || activePkg == SYSTEM_UI_PACKAGE))
+                    if (isCandidate) {
+                        if (isOverviewShowing(root, screenHeightPx)) {
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+
+        if (activeRootNode != null && (activePkg == null || activePkg in allowedLauncherPackages || activePkg == SYSTEM_UI_PACKAGE)) {
+            if (isOverviewShowing(activeRootNode, screenHeightPx)) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /**
+     * Same window-aware Overview / Recents detection over snapshots for deterministic unit testing.
+     */
+    fun isOverviewShowingInSnapshotWindows(
+        windows: List<WindowSnapshot>?,
+        activeRootNode: NodeSnapshot?,
+        allowedLauncherPackages: Set<String>,
+        screenHeightPx: Int
+    ): Boolean {
+        val activePkg = activeRootNode?.packageName
+        if (!activePkg.isNullOrEmpty() && (activePkg in allowedLauncherPackages || activePkg == SYSTEM_UI_PACKAGE)) {
+            if (isOverviewSnapshotShowing(activeRootNode, screenHeightPx)) {
+                return true
+            }
+        }
+
+        if (!windows.isNullOrEmpty()) {
+            for (window in windows) {
+                if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION ||
+                    window.type == AccessibilityWindowInfo.TYPE_SYSTEM
+                ) {
+                    val root = window.root ?: continue
+                    val pkg = root.packageName ?: window.packageName
+                    val titleStr = window.title
+                    val isCandidate = (!pkg.isNullOrEmpty() && (pkg in allowedLauncherPackages || pkg == SYSTEM_UI_PACKAGE)) ||
+                        (!titleStr.isNullOrEmpty() && (allowedLauncherPackages.any { titleStr.contains(it, ignoreCase = true) } ||
+                            titleStr.contains("launcher", ignoreCase = true) ||
+                            titleStr.contains("recents", ignoreCase = true) ||
+                            titleStr.contains("overview", ignoreCase = true))) ||
+                        (activePkg != null && (activePkg in allowedLauncherPackages || activePkg == SYSTEM_UI_PACKAGE))
+                    if (isCandidate) {
+                        if (isOverviewSnapshotShowing(root, screenHeightPx)) {
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+
+        if (activeRootNode != null && (activePkg == null || activePkg in allowedLauncherPackages || activePkg == SYSTEM_UI_PACKAGE)) {
+            if (isOverviewSnapshotShowing(activeRootNode, screenHeightPx)) {
                 return true
             }
         }

@@ -933,9 +933,9 @@ class PixelTapLockUnitTest {
     }
 
     @Test
-    fun `BuildConfig reflects version 1_0_9 and versionCode 10`() {
-        assertEquals(10, BuildConfig.VERSION_CODE)
-        assertEquals("1.0.9", BuildConfig.VERSION_NAME)
+    fun `BuildConfig reflects version 1_0_10 and versionCode 11`() {
+        assertEquals(11, BuildConfig.VERSION_CODE)
+        assertEquals("1.0.10", BuildConfig.VERSION_NAME)
         assertEquals("com.pixeltaplock", BuildConfig.APPLICATION_ID)
     }
 
@@ -2014,6 +2014,415 @@ class PixelTapLockUnitTest {
                 activeRootNode = systemUiRoot,
                 allowedLauncherPackages = allowedLaunchers,
                 screenHeightPx = screenHeight
+            )
+        )
+    }
+
+    @Test
+    fun `isOverviewSnapshotShowing detects active Overview and Recents task switcher views`() {
+        val rootDragLayer = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2992),
+            className = "com.android.launcher3.dragndrop.DragLayer",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/drag_layer",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = 1
+        )
+
+        // 1. RecentsView with overview_panel ID is detected
+        val recentsViewNode = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 200, 1344, 2800),
+            className = "com.android.quickstep.views.RecentsView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/overview_panel",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val rootWithRecents = rootDragLayer.copy(children = listOf(recentsViewNode))
+        assertTrue(BlankSpaceHitTester.isOverviewSnapshotShowing(rootWithRecents, screenHeightPx = 2992))
+
+        // 2. TaskView (suspended app card) is detected
+        val taskViewNode = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(100, 400, 1244, 2400),
+            className = "com.android.quickstep.views.TaskView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/task_view",
+            contentDescription = "Chrome",
+            isVisibleToUser = true,
+            isClickable = true,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val rootWithTaskView = rootDragLayer.copy(children = listOf(taskViewNode))
+        assertTrue(BlankSpaceHitTester.isOverviewSnapshotShowing(rootWithTaskView, screenHeightPx = 2992))
+
+        // 3. OverviewActionsView with action buttons is detected
+        val overviewActionsViewNode = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 2200, 1344, 2850),
+            className = "com.android.quickstep.views.OverviewActionsView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/overview_actions_view",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val rootWithActions = rootDragLayer.copy(children = listOf(overviewActionsViewNode))
+        assertTrue(BlankSpaceHitTester.isOverviewSnapshotShowing(rootWithActions, screenHeightPx = 2992))
+
+        // 4. ClearAllButton is detected
+        val clearAllButtonNode = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(200, 1200, 1144, 1800),
+            className = "com.android.quickstep.views.ClearAllButton",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/clear_all",
+            contentDescription = "Clear all",
+            isVisibleToUser = true,
+            isClickable = true,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val rootWithClearAll = rootDragLayer.copy(children = listOf(clearAllButtonNode))
+        assertTrue(BlankSpaceHitTester.isOverviewSnapshotShowing(rootWithClearAll, screenHeightPx = 2992))
+
+        // 5. Closed Overview container (isVisibleToUser = false) is NOT detected
+        val hiddenRecentsNode = recentsViewNode.copy(isVisibleToUser = false)
+        val rootWithHiddenRecents = rootDragLayer.copy(children = listOf(hiddenRecentsNode))
+        assertFalse(BlankSpaceHitTester.isOverviewSnapshotShowing(rootWithHiddenRecents, screenHeightPx = 2992))
+
+        // 6. Offscreen Overview container translated below screen is NOT detected
+        val offscreenRecentsNode = recentsViewNode.copy(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 2992, 1344, 5984)
+        )
+        val rootWithOffscreenRecents = rootDragLayer.copy(children = listOf(offscreenRecentsNode))
+        assertFalse(BlankSpaceHitTester.isOverviewSnapshotShowing(rootWithOffscreenRecents, screenHeightPx = 2992))
+
+        // 7. Normal Home Screen workspace with CellLayout is NOT detected as Overview
+        val cellLayoutNode = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 144, 1344, 2866),
+            className = "com.android.launcher3.CellLayout",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/cell_layout",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val normalWorkspaceRoot = rootDragLayer.copy(children = listOf(cellLayoutNode))
+        assertFalse(BlankSpaceHitTester.isOverviewSnapshotShowing(normalWorkspaceRoot, screenHeightPx = 2992))
+    }
+
+    @Test
+    fun `Check A interactive node hit-test recognizes Overview views and containers as interactive elements`() {
+        val nonClickableRecentsView = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 200, 1344, 2800),
+            className = "com.android.quickstep.views.RecentsView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/overview_panel",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = false,
+            isRoot = false,
+            childCount = 0
+        )
+        val root = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2992),
+            className = "com.android.launcher3.dragndrop.DragLayer",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/drag_layer",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = 1,
+            children = listOf(nonClickableRecentsView)
+        )
+        // Even when isClickable is false, touching the RecentsView container is recognized as hitting an interactive element
+        assertTrue(
+            BlankSpaceHitTester.hitsInteractiveSnapshot(
+                root = root,
+                rawX = 672f,
+                rawY = 1500f,
+                screenWidthPx = 1344,
+                screenHeightPx = 2992
+            )
+        )
+    }
+
+    @Test
+    fun `isExcludedWorkspaceContainer rejects overview_panel and RecentsView`() {
+        // overview_panel must NOT be treated as a blank workspace container
+        assertFalse(
+            BlankSpaceHitTester.isExcludedWorkspaceContainer(
+                isRoot = false,
+                bounds = BlankSpaceHitTester.createRect(0, 0, 1344, 2992),
+                className = "com.android.quickstep.views.RecentsView",
+                viewIdResourceName = "com.google.android.apps.nexuslauncher:id/overview_panel",
+                childCount = 2,
+                screenWidthPx = 1344,
+                screenHeightPx = 2992
+            )
+        )
+    }
+
+    @Test
+    fun `isOverviewSnapshotShowing rejects container when translated almost completely offscreen`() {
+        val screenHeight = 2992
+        val peekRecentsNode = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 2942, 1344, 5934),
+            className = "com.android.quickstep.views.RecentsView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/overview_panel",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val root = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight),
+            className = "com.android.launcher3.dragndrop.DragLayer",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/drag_layer",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = 1,
+            children = listOf(peekRecentsNode)
+        )
+        // Visible height is 50px (< 20% of 2992) -> Must NOT be treated as showing
+        assertFalse(BlankSpaceHitTester.isOverviewSnapshotShowing(root, screenHeightPx = screenHeight))
+    }
+
+    @Test
+    fun `isOverviewSnapshotShowing recognizes Overview when visible at least 20 percent`() {
+        val screenHeight = 2992
+        val openRecentsNode = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 1992, 1344, 4984),
+            className = "com.android.quickstep.views.RecentsView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/overview_panel",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val root = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight),
+            className = "com.android.launcher3.dragndrop.DragLayer",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/drag_layer",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = 1,
+            children = listOf(openRecentsNode)
+        )
+        // Visible height is 1000px (> 20% of 2992) -> Must be recognized as actively showing
+        assertTrue(BlankSpaceHitTester.isOverviewSnapshotShowing(root, screenHeightPx = screenHeight))
+    }
+
+    @Test
+    fun `isOverviewShowingInSnapshotWindows detects open Overview even when active window is SystemUI`() {
+        val screenHeight = 2992
+        val allowedLaunchers = setOf("com.google.android.apps.nexuslauncher", "com.android.launcher3")
+
+        val openRecentsNode = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight),
+            className = "com.android.quickstep.views.RecentsView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/overview_panel",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val launcherRoot = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight),
+            className = "com.android.launcher3.dragndrop.DragLayer",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/drag_layer",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = 1,
+            children = listOf(openRecentsNode),
+            packageName = "com.google.android.apps.nexuslauncher"
+        )
+        val systemUiRoot = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 144),
+            className = "android.widget.FrameLayout",
+            viewIdResourceName = "com.android.systemui:id/status_bar",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = 0,
+            packageName = "com.android.systemui"
+        )
+
+        val systemUiWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_SYSTEM,
+            isActive = true,
+            isFocused = false,
+            packageName = "com.android.systemui",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 144),
+            root = systemUiRoot
+        )
+        val launcherWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = false,
+            isFocused = true,
+            packageName = "com.google.android.apps.nexuslauncher",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight),
+            root = launcherRoot
+        )
+
+        val windows = listOf(systemUiWindow, launcherWindow)
+
+        // When activeRootNode is SystemUI, the method must inspect the launcher application window and find the open Overview
+        assertTrue(
+            BlankSpaceHitTester.isOverviewShowingInSnapshotWindows(
+                windows = windows,
+                activeRootNode = systemUiRoot,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = screenHeight
+            )
+        )
+    }
+
+    @Test
+    fun `isOverviewShowingInSnapshotWindows returns false when Overview is closed in multi-window context`() {
+        val screenHeight = 2992
+        val allowedLaunchers = setOf("com.google.android.apps.nexuslauncher", "com.android.launcher3")
+
+        // Overview translated offscreen below display
+        val closedRecentsNode = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 2992, 1344, 5984),
+            className = "com.android.quickstep.views.RecentsView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/overview_panel",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val launcherRoot = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight),
+            className = "com.android.launcher3.dragndrop.DragLayer",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/drag_layer",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = 1,
+            children = listOf(closedRecentsNode),
+            packageName = "com.google.android.apps.nexuslauncher"
+        )
+        val systemUiRoot = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 144),
+            className = "android.widget.FrameLayout",
+            viewIdResourceName = "com.android.systemui:id/status_bar",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = 0,
+            packageName = "com.android.systemui"
+        )
+
+        val systemUiWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_SYSTEM,
+            isActive = true,
+            isFocused = false,
+            packageName = "com.android.systemui",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 144),
+            root = systemUiRoot
+        )
+        val launcherWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = false,
+            isFocused = true,
+            packageName = "com.google.android.apps.nexuslauncher",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight),
+            root = launcherRoot
+        )
+
+        val windows = listOf(systemUiWindow, launcherWindow)
+
+        // Overview is closed, so it must return false (allowing normal Home Screen double-tap lock)
+        assertFalse(
+            BlankSpaceHitTester.isOverviewShowingInSnapshotWindows(
+                windows = windows,
+                activeRootNode = systemUiRoot,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = screenHeight
+            )
+        )
+    }
+
+    @Test
+    fun `isInterruptingAccessibilityEvent recognizes Overview window state changes as interrupting`() {
+        val allowedLaunchers = setOf("com.google.android.apps.nexuslauncher", "com.android.launcher3")
+
+        // Window state change to RecentsView must be recognized as interrupting
+        assertTrue(
+            BlankSpaceHitTester.isInterruptingAccessibilityEvent(
+                eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                packageName = "com.google.android.apps.nexuslauncher",
+                className = "com.android.quickstep.views.RecentsView",
+                contentDescription = null,
+                ownPackageName = "com.pixeltaplock",
+                ownWidgetContentDescription = null,
+                allowedLauncherPackages = allowedLaunchers
+            )
+        )
+
+        // Normal launcher activity window state change is not treated as an interrupting click/scroll
+        assertFalse(
+            BlankSpaceHitTester.isInterruptingAccessibilityEvent(
+                eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                packageName = "com.google.android.apps.nexuslauncher",
+                className = "com.google.android.apps.nexuslauncher.NexusLauncherActivity",
+                contentDescription = null,
+                ownPackageName = "com.pixeltaplock",
+                ownWidgetContentDescription = null,
+                allowedLauncherPackages = allowedLaunchers
             )
         )
     }
