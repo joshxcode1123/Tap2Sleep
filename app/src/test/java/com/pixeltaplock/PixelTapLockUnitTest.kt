@@ -1864,4 +1864,157 @@ class PixelTapLockUnitTest {
         // Visible height is 1000px (> 20% of 2992) -> Must be recognized as actively showing
         assertTrue(BlankSpaceHitTester.isAllAppsDrawerSnapshotShowing(root, screenHeightPx = screenHeight))
     }
+
+    @Test
+    fun `isAllAppsDrawerShowingInSnapshotWindows detects open drawer even when active window is SystemUI`() {
+        val screenHeight = 2992
+        val allowedLaunchers = setOf("com.google.android.apps.nexuslauncher", "com.android.launcher3")
+
+        val openDrawerNode = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight),
+            className = "com.google.android.apps.nexuslauncher.allapps.NexusLauncherAllAppsContainerView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/apps_view",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val launcherRoot = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight),
+            className = "com.android.launcher3.dragndrop.DragLayer",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/drag_layer",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = 1,
+            children = listOf(openDrawerNode),
+            packageName = "com.google.android.apps.nexuslauncher"
+        )
+
+        // SystemUI root (e.g. status bar or navigation bar active root)
+        val systemUiRoot = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 144),
+            className = "android.widget.FrameLayout",
+            viewIdResourceName = "com.android.systemui:id/status_bar",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = 0,
+            packageName = "com.android.systemui"
+        )
+
+        val systemUiWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_SYSTEM,
+            isActive = true,
+            isFocused = false,
+            packageName = "com.android.systemui",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 144),
+            root = systemUiRoot
+        )
+        val launcherWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = false,
+            isFocused = true,
+            packageName = "com.google.android.apps.nexuslauncher",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight),
+            root = launcherRoot
+        )
+
+        val windows = listOf(systemUiWindow, launcherWindow)
+
+        // When activeRootNode is SystemUI, the method must inspect the launcher application window and find the open drawer
+        assertTrue(
+            BlankSpaceHitTester.isAllAppsDrawerShowingInSnapshotWindows(
+                windows = windows,
+                activeRootNode = systemUiRoot,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = screenHeight
+            )
+        )
+    }
+
+    @Test
+    fun `isAllAppsDrawerShowingInSnapshotWindows returns false when drawer is closed in multi-window context`() {
+        val screenHeight = 2992
+        val allowedLaunchers = setOf("com.google.android.apps.nexuslauncher", "com.android.launcher3")
+
+        // Drawer translated offscreen below display
+        val closedDrawerNode = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 2992, 1344, 5984),
+            className = "com.google.android.apps.nexuslauncher.allapps.NexusLauncherAllAppsContainerView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/apps_view",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val launcherRoot = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight),
+            className = "com.android.launcher3.dragndrop.DragLayer",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/drag_layer",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = 1,
+            children = listOf(closedDrawerNode),
+            packageName = "com.google.android.apps.nexuslauncher"
+        )
+        val systemUiRoot = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 144),
+            className = "android.widget.FrameLayout",
+            viewIdResourceName = "com.android.systemui:id/status_bar",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = 0,
+            packageName = "com.android.systemui"
+        )
+
+        val systemUiWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_SYSTEM,
+            isActive = true,
+            isFocused = false,
+            packageName = "com.android.systemui",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 144),
+            root = systemUiRoot
+        )
+        val launcherWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = false,
+            isFocused = true,
+            packageName = "com.google.android.apps.nexuslauncher",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight),
+            root = launcherRoot
+        )
+
+        val windows = listOf(systemUiWindow, launcherWindow)
+
+        // Drawer is closed, so it must return false (allowing normal Home Screen double-tap lock)
+        assertFalse(
+            BlankSpaceHitTester.isAllAppsDrawerShowingInSnapshotWindows(
+                windows = windows,
+                activeRootNode = systemUiRoot,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = screenHeight
+            )
+        )
+    }
 }

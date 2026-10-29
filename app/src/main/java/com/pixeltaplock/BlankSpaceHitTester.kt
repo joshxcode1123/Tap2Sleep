@@ -61,7 +61,8 @@ data class WindowSnapshot(
     val isFocused: Boolean = false,
     val packageName: String? = null,
     val boundsInScreen: Rect = Rect(),
-    val title: String? = null
+    val title: String? = null,
+    val root: NodeSnapshot? = null
 )
 
 object BlankSpaceHitTester {
@@ -855,6 +856,103 @@ object BlankSpaceHitTester {
         }
 
         return true
+    }
+
+    /**
+     * Check C (Launcher App Drawer Filter):
+     * Verifies across active and application windows whether the Launcher's All Apps drawer is showing.
+     * Even if [activeRootNode] currently belongs to SystemUI (e.g. transparent status bar or overlay window
+     * with focus), this inspects the launcher application window in [windows] to prevent false locks.
+     */
+    fun isAllAppsDrawerShowingInWindows(
+        windows: List<AccessibilityWindowInfo>?,
+        activeRootNode: AccessibilityNodeInfo?,
+        allowedLauncherPackages: Set<String>,
+        screenHeightPx: Int
+    ): Boolean {
+        val activePkg = activeRootNode?.packageName?.toString()
+        if (!activePkg.isNullOrEmpty() && activePkg in allowedLauncherPackages) {
+            if (isAllAppsDrawerShowing(activeRootNode, screenHeightPx)) {
+                return true
+            }
+        }
+
+        if (!windows.isNullOrEmpty()) {
+            for (window in windows) {
+                if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION) {
+                    val root = try {
+                        window.root
+                    } catch (_: Exception) {
+                        null
+                    } ?: continue
+                    val pkg = root.packageName?.toString()
+                    val titleStr = try {
+                        window.title?.toString()
+                    } catch (_: Exception) {
+                        null
+                    }
+                    val isLauncher = (!pkg.isNullOrEmpty() && pkg in allowedLauncherPackages) ||
+                        (!titleStr.isNullOrEmpty() && (allowedLauncherPackages.any { titleStr.contains(it, ignoreCase = true) } || titleStr.contains("launcher", ignoreCase = true))) ||
+                        (activePkg != null && activePkg in allowedLauncherPackages)
+                    if (isLauncher) {
+                        if (isAllAppsDrawerShowing(root, screenHeightPx)) {
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+
+        if (activeRootNode != null && (activePkg == null || activePkg in allowedLauncherPackages)) {
+            if (isAllAppsDrawerShowing(activeRootNode, screenHeightPx)) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /**
+     * Same window-aware All Apps drawer detection over snapshots for deterministic unit testing.
+     */
+    fun isAllAppsDrawerShowingInSnapshotWindows(
+        windows: List<WindowSnapshot>?,
+        activeRootNode: NodeSnapshot?,
+        allowedLauncherPackages: Set<String>,
+        screenHeightPx: Int
+    ): Boolean {
+        val activePkg = activeRootNode?.packageName
+        if (!activePkg.isNullOrEmpty() && activePkg in allowedLauncherPackages) {
+            if (isAllAppsDrawerSnapshotShowing(activeRootNode, screenHeightPx)) {
+                return true
+            }
+        }
+
+        if (!windows.isNullOrEmpty()) {
+            for (window in windows) {
+                if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION) {
+                    val root = window.root ?: continue
+                    val pkg = root.packageName ?: window.packageName
+                    val titleStr = window.title
+                    val isLauncher = (!pkg.isNullOrEmpty() && pkg in allowedLauncherPackages) ||
+                        (!titleStr.isNullOrEmpty() && (allowedLauncherPackages.any { titleStr.contains(it, ignoreCase = true) } || titleStr.contains("launcher", ignoreCase = true))) ||
+                        (activePkg != null && activePkg in allowedLauncherPackages)
+                    if (isLauncher) {
+                        if (isAllAppsDrawerSnapshotShowing(root, screenHeightPx)) {
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+
+        if (activeRootNode != null && (activePkg == null || activePkg in allowedLauncherPackages)) {
+            if (isAllAppsDrawerSnapshotShowing(activeRootNode, screenHeightPx)) {
+                return true
+            }
+        }
+
+        return false
     }
 
     /**
