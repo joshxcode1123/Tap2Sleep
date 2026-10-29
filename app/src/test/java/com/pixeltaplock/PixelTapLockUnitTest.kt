@@ -933,9 +933,9 @@ class PixelTapLockUnitTest {
     }
 
     @Test
-    fun `BuildConfig reflects version 1_0_8 and versionCode 9`() {
-        assertEquals(9, BuildConfig.VERSION_CODE)
-        assertEquals("1.0.8", BuildConfig.VERSION_NAME)
+    fun `BuildConfig reflects version 1_0_9 and versionCode 10`() {
+        assertEquals(10, BuildConfig.VERSION_CODE)
+        assertEquals("1.0.9", BuildConfig.VERSION_NAME)
         assertEquals("com.pixeltaplock", BuildConfig.APPLICATION_ID)
     }
 
@@ -1664,5 +1664,204 @@ class PixelTapLockUnitTest {
                 allowTransitionCandidate = true
             )
         )
+    }
+
+    @Test
+    fun `isAllAppsDrawerSnapshotShowing detects visible and open All Apps drawer container`() {
+        val appDrawerNode = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2992),
+            className = "com.google.android.apps.nexuslauncher.allapps.NexusLauncherAllAppsContainerView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/apps_view",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+
+        val rootDragLayer = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2992),
+            className = "com.android.launcher3.dragndrop.DragLayer",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/drag_layer",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = 1,
+            children = listOf(appDrawerNode)
+        )
+
+        // 1. Fully open AllApps container is detected
+        assertTrue(BlankSpaceHitTester.isAllAppsDrawerSnapshotShowing(rootDragLayer, screenHeightPx = 2992))
+
+        // 2. AllAppsRecyclerView with apps_list_view is detected
+        val allAppsRecyclerView = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 200, 1344, 2800),
+            className = "com.android.launcher3.allapps.AllAppsRecyclerView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/apps_list_view",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = true,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val rootWithRecyclerView = rootDragLayer.copy(children = listOf(allAppsRecyclerView))
+        assertTrue(BlankSpaceHitTester.isAllAppsDrawerSnapshotShowing(rootWithRecyclerView, screenHeightPx = 2992))
+
+        // 3. Tabbed all apps view pager is detected
+        val allAppsTabsViewPager = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 200, 1344, 2800),
+            className = "com.android.launcher3.views.AllAppsTabsViewPager",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/all_apps_tabs_view_pager",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val rootWithTabs = rootDragLayer.copy(children = listOf(allAppsTabsViewPager))
+        assertTrue(BlankSpaceHitTester.isAllAppsDrawerSnapshotShowing(rootWithTabs, screenHeightPx = 2992))
+
+        // 4. Closed AllApps container (isVisibleToUser = false) is NOT detected
+        val hiddenAppDrawerNode = appDrawerNode.copy(isVisibleToUser = false)
+        val rootWithHiddenDrawer = rootDragLayer.copy(children = listOf(hiddenAppDrawerNode))
+        assertFalse(BlankSpaceHitTester.isAllAppsDrawerSnapshotShowing(rootWithHiddenDrawer, screenHeightPx = 2992))
+
+        // 5. Offscreen AllApps container translated below screen (top >= screenHeightPx) is NOT detected
+        val offscreenDrawerNode = appDrawerNode.copy(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 2992, 1344, 5984)
+        )
+        val rootWithOffscreenDrawer = rootDragLayer.copy(children = listOf(offscreenDrawerNode))
+        assertFalse(BlankSpaceHitTester.isAllAppsDrawerSnapshotShowing(rootWithOffscreenDrawer, screenHeightPx = 2992))
+
+        // 6. Normal Home Screen workspace with CellLayout is NOT detected as app drawer
+        val cellLayoutNode = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 144, 1344, 2866),
+            className = "com.android.launcher3.CellLayout",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/cell_layout",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val normalWorkspaceRoot = rootDragLayer.copy(children = listOf(cellLayoutNode))
+        assertFalse(BlankSpaceHitTester.isAllAppsDrawerSnapshotShowing(normalWorkspaceRoot, screenHeightPx = 2992))
+    }
+
+    @Test
+    fun `Check A interactive node hit-test recognizes All Apps views and containers as interactive elements`() {
+        val nonClickableRecyclerView = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 200, 1344, 2800),
+            className = "com.android.launcher3.allapps.AllAppsRecyclerView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/apps_list_view",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = false,
+            isRoot = false,
+            childCount = 0
+        )
+        val root = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2992),
+            className = "com.android.launcher3.dragndrop.DragLayer",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/drag_layer",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = 1,
+            children = listOf(nonClickableRecyclerView)
+        )
+        // Even when isClickable and isLongClickable are false on the RecyclerView,
+        // it is part of All Apps drawer, so touching it must be recognized as hitting an interactive element!
+        assertTrue(
+            BlankSpaceHitTester.hitsInteractiveSnapshot(
+                root = root,
+                rawX = 672f,
+                rawY = 1500f,
+                screenWidthPx = 1344,
+                screenHeightPx = 2992
+            )
+        )
+    }
+
+    @Test
+    fun `isAllAppsDrawerSnapshotShowing rejects container when translated almost completely offscreen`() {
+        val screenHeight = 2992
+        // AllAppsContainerView translated almost offscreen: only 50px visible at the bottom (top at 2942, bottom at 5934)
+        val peekDrawerNode = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 2942, 1344, 5934),
+            className = "com.android.launcher3.allapps.AllAppsContainerView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/apps_view",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val root = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight),
+            className = "com.android.launcher3.dragndrop.DragLayer",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/drag_layer",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = 1,
+            children = listOf(peekDrawerNode)
+        )
+        // Visible height is 50px (< 20% of 2992 = 598px) -> Must NOT be treated as showing!
+        assertFalse(BlankSpaceHitTester.isAllAppsDrawerSnapshotShowing(root, screenHeightPx = screenHeight))
+    }
+
+    @Test
+    fun `isAllAppsDrawerSnapshotShowing recognizes drawer when partially pulled up at least 20 percent`() {
+        val screenHeight = 2992
+        // AllAppsContainerView pulled up: 1000px visible (top at 1992, bottom at 4984)
+        val openDrawerNode = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 1992, 1344, 4984),
+            className = "com.android.launcher3.allapps.AllAppsContainerView",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/apps_view",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+        val root = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight),
+            className = "com.android.launcher3.dragndrop.DragLayer",
+            viewIdResourceName = "com.google.android.apps.nexuslauncher:id/drag_layer",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = 1,
+            children = listOf(openDrawerNode)
+        )
+        // Visible height is 1000px (> 20% of 2992) -> Must be recognized as actively showing
+        assertTrue(BlankSpaceHitTester.isAllAppsDrawerSnapshotShowing(root, screenHeightPx = screenHeight))
     }
 }

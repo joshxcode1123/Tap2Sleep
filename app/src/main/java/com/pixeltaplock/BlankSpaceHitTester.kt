@@ -70,6 +70,34 @@ object BlankSpaceHitTester {
     const val SCREEN_WAKE_TRANSITION_GRACE_MS = 600L
     const val SYSTEM_UI_PACKAGE = "com.android.systemui"
 
+    private val ALL_APPS_CLASS_PATTERNS = listOf(
+        "AllAppsContainerView",
+        "ActivityAllAppsContainerView",
+        "LauncherAllAppsContainerView",
+        "NexusLauncherAllAppsContainerView",
+        "AllAppsRecyclerView",
+        "SearchRecyclerView",
+        "AppsContainerView",
+        "AlphabeticalAppsList",
+        "FloatingHeaderView",
+        "AllAppsPagedView"
+    )
+
+    private val ALL_APPS_ID_PATTERNS = listOf(
+        "all_apps",
+        "apps_list_view",
+        "all_apps_view",
+        "all_apps_container",
+        "all_apps_tabs_view_pager",
+        "all_apps_header",
+        "search_container_all_apps",
+        "all_apps_content",
+        "all_apps_rv_layout",
+        "search_results_rv_layout",
+        "apps_view",
+        "all_apps_personal_work_tabs"
+    )
+
     private val DEDICATED_WORKSPACE_CLASSES = listOf(
         "Workspace",
         "CellLayout",
@@ -359,6 +387,15 @@ object BlankSpaceHitTester {
             }
         }
 
+        val cls = node.className?.toString().orEmpty()
+        val viewId = node.viewIdResourceName.orEmpty().lowercase()
+        // Any All Apps drawer container or element is an interactive app browser area, never blank space
+        if (ALL_APPS_CLASS_PATTERNS.any { cls.contains(it, ignoreCase = true) } ||
+            ALL_APPS_ID_PATTERNS.any { viewId.contains(it) }
+        ) {
+            return true
+        }
+
         // Evaluate whether this node itself is an interactive element vs a root/workspace container
         val isInteractiveFlag = node.isClickable || node.isLongClickable || node.isFocusable
         if (!isInteractiveFlag) {
@@ -442,6 +479,15 @@ object BlankSpaceHitTester {
             }
         }
 
+        val cls = node.className.orEmpty()
+        val viewId = node.viewIdResourceName.orEmpty().lowercase()
+        // Any All Apps drawer container or element is an interactive app browser area, never blank space
+        if (ALL_APPS_CLASS_PATTERNS.any { cls.contains(it, ignoreCase = true) } ||
+            ALL_APPS_ID_PATTERNS.any { viewId.contains(it) }
+        ) {
+            return true
+        }
+
         val isInteractiveFlag = node.isClickable || node.isLongClickable || node.isFocusable
         if (!isInteractiveFlag) return false
 
@@ -484,10 +530,12 @@ object BlankSpaceHitTester {
         val pkgLower = packageName.orEmpty().lowercase()
 
         // Never treat bouncer, camera, photo, or filmstrip nodes (even root or null-id ViewPagers)
-        // as blank workspace containers
+        // or All Apps app drawer containers as blank workspace containers
         if (NON_BLANK_CONTAINER_ID_PATTERNS.any {
                 viewId.contains(it) || clsLower.contains(it) || pkgLower.contains(it)
-            }
+            } ||
+            ALL_APPS_CLASS_PATTERNS.any { cls.contains(it, ignoreCase = true) } ||
+            ALL_APPS_ID_PATTERNS.any { viewId.contains(it) }
         ) {
             return false
         }
@@ -699,6 +747,114 @@ object BlankSpaceHitTester {
             }
         }
         return false
+    }
+
+    /**
+     * Returns true if the Launcher's All Apps drawer (app tray) is currently open and visible
+     * to the user, ensuring rapid flicks or browsing in the app drawer are never registered
+     * as Home Screen blank-space double taps.
+     */
+    fun isAllAppsDrawerShowing(rootNode: AccessibilityNodeInfo?, screenHeightPx: Int = 0): Boolean {
+        if (rootNode == null) return false
+        return checkLiveAllAppsRecursive(rootNode, screenHeightPx, depth = 0)
+    }
+
+    private fun checkLiveAllAppsRecursive(
+        node: AccessibilityNodeInfo,
+        screenHeightPx: Int,
+        depth: Int
+    ): Boolean {
+        if (depth > 35 || !node.isVisibleToUser) return false
+
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        if (isAllAppsNodeMatch(
+                className = node.className?.toString(),
+                viewIdResourceName = node.viewIdResourceName,
+                bounds = bounds,
+                screenHeightPx = screenHeightPx
+            )
+        ) {
+            return true
+        }
+
+        val count = node.childCount
+        for (i in 0 until count) {
+            val child = node.getChild(i) ?: continue
+            if (checkLiveAllAppsRecursive(child, screenHeightPx, depth + 1)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * Same All Apps drawer detection over [NodeSnapshot] for deterministic unit testing.
+     */
+    fun isAllAppsDrawerSnapshotShowing(root: NodeSnapshot?, screenHeightPx: Int = 0): Boolean {
+        if (root == null) return false
+        return checkSnapshotAllAppsRecursive(root, screenHeightPx, depth = 0)
+    }
+
+    private fun checkSnapshotAllAppsRecursive(
+        node: NodeSnapshot,
+        screenHeightPx: Int,
+        depth: Int
+    ): Boolean {
+        if (depth > 35 || !node.isVisibleToUser) return false
+
+        if (isAllAppsNodeMatch(
+                className = node.className,
+                viewIdResourceName = node.viewIdResourceName,
+                bounds = node.boundsInScreen,
+                screenHeightPx = screenHeightPx
+            )
+        ) {
+            return true
+        }
+
+        for (child in node.children) {
+            if (checkSnapshotAllAppsRecursive(child, screenHeightPx, depth + 1)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun isAllAppsNodeMatch(
+        className: String?,
+        viewIdResourceName: String?,
+        bounds: Rect,
+        screenHeightPx: Int
+    ): Boolean {
+        val cls = className.orEmpty()
+        val viewId = viewIdResourceName.orEmpty().lowercase()
+        val matchesClass = ALL_APPS_CLASS_PATTERNS.any { cls.contains(it, ignoreCase = true) }
+        val matchesId = ALL_APPS_ID_PATTERNS.any { viewId.contains(it) }
+
+        if (!matchesClass && !matchesId) {
+            return false
+        }
+
+        if (isRectEmpty(bounds)) {
+            return false
+        }
+
+        if (screenHeightPx > 0) {
+            // Must be within visible screen vertical bounds (not translated offscreen below display)
+            if (bounds.top >= screenHeightPx || bounds.bottom <= 0) {
+                return false
+            }
+            val visibleTop = maxOf(bounds.top, 0)
+            val visibleBottom = minOf(bounds.bottom, screenHeightPx)
+            val visibleHeight = maxOf(0, visibleBottom - visibleTop)
+            // Must occupy at least 20% of screen height to be considered actively showing/opened
+            if (visibleHeight < (screenHeightPx * 0.20f).toInt()) {
+                return false
+            }
+        }
+
+        return true
     }
 
     /**

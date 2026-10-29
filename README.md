@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/joshxcode1123/Tap2Sleep/actions/workflows/build.yml"><img src="https://github.com/joshxcode1123/Tap2Sleep/actions/workflows/build.yml/badge.svg" alt="Build & Test" /></a>
-  <a href="https://github.com/joshxcode1123/Tap2Sleep/releases/latest"><img src="https://img.shields.io/badge/Release-v1.0.8-blue.svg?logo=github" alt="Latest Release" /></a>
+  <a href="https://github.com/joshxcode1123/Tap2Sleep/releases/latest"><img src="https://img.shields.io/badge/Release-v1.0.9-blue.svg?logo=github" alt="Latest Release" /></a>
   <img src="https://img.shields.io/badge/Platform-Android%2012%E2%80%9315%2B-3DDC84?logo=android&logoColor=white" alt="Platform" />
   <img src="https://img.shields.io/badge/Designed%20For-Google%20Pixel-4285F4?logo=google&logoColor=white" alt="Designed for Pixel" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-orange.svg" alt="License" /></a>
@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="https://github.com/joshxcode1123/Tap2Sleep/releases/latest">
-    <img src="https://img.shields.io/badge/⬇%EF%B8%8F_Download_APK-Tap2Sleep--v1.0.8.apk-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="Download APK" />
+    <img src="https://img.shields.io/badge/⬇%EF%B8%8F_Download_APK-Tap2Sleep--v1.0.9.apk-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="Download APK" />
   </a>
 </p>
 

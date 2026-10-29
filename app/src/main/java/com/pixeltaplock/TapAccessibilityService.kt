@@ -617,6 +617,17 @@ class TapAccessibilityService : AccessibilityService() {
                 allowTransitionCandidate = allowTransitionCandidate || isRecentUnlock
             )
             if (isHome) {
+                val allAppsCandidateNode = activeRootNode ?: try {
+                    windowsList?.firstOrNull { win ->
+                        win.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION &&
+                            win.root?.packageName?.toString() in allowedLaunchers
+                    }?.root ?: windowsList?.firstOrNull { it.isActive || it.isFocused }?.root
+                } catch (_: Exception) {
+                    null
+                }
+                if (BlankSpaceHitTester.isAllAppsDrawerShowing(allAppsCandidateNode, maxBounds.height())) {
+                    return false
+                }
                 lastUserPresentUptimeMillis = now
                 lastScreenWakeUptimeMillis = 0L
                 return true
