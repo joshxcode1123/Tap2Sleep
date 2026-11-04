@@ -787,6 +787,79 @@ object BlankSpaceHitTester {
         return false
     }
 
+    private val SYSTEM_UI_INTERRUPT_DIALOG_PATTERNS = listOf(
+        "VolumeDialog",
+        "GlobalActions",
+        "Bouncer",
+        "KeyguardBouncer",
+        "BiometricPrompt",
+        "AuthCredential",
+        "QSPanel",
+        "QuickQSPanel",
+        "QSContainer"
+    )
+
+    /**
+     * Returns true when a SystemUI TYPE_WINDOW_STATE_CHANGED event represents an active dialog,
+     * volume slider, power menu, biometric prompt, bouncer, or expanded Quick Settings panel
+     * (while preserving benign status bar / unlock window transitions).
+     */
+    fun isSystemUiDialogOrQsEvent(
+        className: String?,
+        contentDescription: String?
+    ): Boolean {
+        val cls = className.orEmpty()
+        val desc = contentDescription.orEmpty()
+        if (SYSTEM_UI_INTERRUPT_DIALOG_PATTERNS.any { cls.contains(it, ignoreCase = true) }) {
+            return true
+        }
+        if (BOUNCER_CLASS_PATTERNS.any { cls.contains(it, ignoreCase = true) }) {
+            return true
+        }
+        if (desc.contains("Quick settings", ignoreCase = true)) {
+            return true
+        }
+        return false
+    }
+
+    /**
+     * Returns true if the Quick Settings panel is visibly expanded over the Lock Screen.
+     */
+    fun isLockScreenQuickSettingsExpanded(rootNode: AccessibilityNodeInfo?): Boolean {
+        if (rootNode == null) return false
+        var visibleQsTileCount = 0
+        fun traverse(node: AccessibilityNodeInfo, depth: Int): Boolean {
+            if (depth > 30 || !node.isVisibleToUser) return false
+            val cls = node.className?.toString().orEmpty()
+            val viewId = node.viewIdResourceName.orEmpty().lowercase()
+            if (cls.contains("QSTileView", ignoreCase = true) || viewId.contains("qs_tile")) {
+                val bounds = Rect()
+                node.getBoundsInScreen(bounds)
+                if (!isRectEmpty(bounds)) {
+                    visibleQsTileCount++
+                    if (visibleQsTileCount >= 4) return true
+                }
+            }
+            if (cls.contains("QSPanel", ignoreCase = true) ||
+                cls.contains("QuickQSPanel", ignoreCase = true) ||
+                viewId.contains("quick_settings_panel") ||
+                viewId.contains("quick_qs_panel") ||
+                viewId.contains("qs_customize")
+            ) {
+                val bounds = Rect()
+                node.getBoundsInScreen(bounds)
+                if (!isRectEmpty(bounds)) return true
+            }
+            val count = node.childCount
+            for (i in 0 until count) {
+                val child = node.getChild(i) ?: continue
+                if (traverse(child, depth + 1)) return true
+            }
+            return false
+        }
+        return traverse(rootNode, 0)
+    }
+
     /**
      * Returns true if the Launcher's All Apps drawer (app tray) is currently open and visible
      * to the user, ensuring rapid flicks or browsing in the app drawer are never registered

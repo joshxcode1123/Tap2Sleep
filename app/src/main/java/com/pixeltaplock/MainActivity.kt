@@ -297,7 +297,7 @@ private fun ServiceStatusCard(
     onOpenAccessibilitySettings: () -> Unit,
     onOpenAppInfo: () -> Unit
 ) {
-    var showRestrictedGuide by rememberSaveable { mutableStateOf(!isServiceActive) }
+    var showRestrictedGuide by rememberSaveable(isServiceActive) { mutableStateOf(!isServiceActive) }
 
     val containerColor = if (isServiceActive) {
         MaterialTheme.colorScheme.primaryContainer

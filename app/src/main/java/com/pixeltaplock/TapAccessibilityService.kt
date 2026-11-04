@@ -166,6 +166,7 @@ class TapAccessibilityService : AccessibilityService() {
 
         startWakeTransitionTracking()
 
+        flickerController?.stopListening()
         val controller = FlickerProtectionOverlayController(
             context = this,
             windowManager = windowManager,
@@ -225,7 +226,11 @@ class TapAccessibilityService : AccessibilityService() {
 
         if (isInteractiveEvent) {
             val isSystemUiUnlockTransition = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
-                pkgStr == BlankSpaceHitTester.SYSTEM_UI_PACKAGE
+                pkgStr == BlankSpaceHitTester.SYSTEM_UI_PACKAGE &&
+                !BlankSpaceHitTester.isSystemUiDialogOrQsEvent(
+                    className = event.className?.toString(),
+                    contentDescription = event.contentDescription?.toString()
+                )
 
             if (!isSystemUiUnlockTransition) {
                 lastInteractiveEventUptimeMillis = now
@@ -454,7 +459,13 @@ class TapAccessibilityService : AccessibilityService() {
         }
 
         val settings = currentSettings
-        if (!isEligibleScreenContext(settings, allowTransitionCandidate = true)) {
+        if (!isEligibleScreenContext(
+                settings = settings,
+                allowTransitionCandidate = true,
+                preFetchedWindows = windowsList,
+                preFetchedRoot = activeRoot
+            )
+        ) {
             firstOutsideTap = null
             return
         }
@@ -500,7 +511,7 @@ class TapAccessibilityService : AccessibilityService() {
         }
         if (previousTap == null) {
             // Check A on Tap 1 when coordinates are present
-            if (currentTap.hasValidCoordinates && hitsInteractiveNodeAt(rawX, rawY, screenConfig)) {
+            if (currentTap.hasValidCoordinates && hitsInteractiveNodeAt(rawX, rawY, screenConfig, activeRoot)) {
                 firstOutsideTap = null
                 return
             }
@@ -518,7 +529,7 @@ class TapAccessibilityService : AccessibilityService() {
 
         if (!isPair) {
             // Current tap becomes the new First Tap candidate (if it passes Check A)
-            if (currentTap.hasValidCoordinates && hitsInteractiveNodeAt(rawX, rawY, screenConfig)) {
+            if (currentTap.hasValidCoordinates && hitsInteractiveNodeAt(rawX, rawY, screenConfig, activeRoot)) {
                 firstOutsideTap = null
             } else {
                 firstOutsideTap = currentTap
@@ -527,7 +538,7 @@ class TapAccessibilityService : AccessibilityService() {
         }
 
         // Check A (Part 2): Coordinate Hit-Test on Tap 2 (if rawX > 0 && rawY > 0)
-        if (currentTap.hasValidCoordinates && hitsInteractiveNodeAt(rawX, rawY, screenConfig)) {
+        if (currentTap.hasValidCoordinates && hitsInteractiveNodeAt(rawX, rawY, screenConfig, activeRoot)) {
             firstOutsideTap = null
             return
         }
@@ -597,9 +608,10 @@ class TapAccessibilityService : AccessibilityService() {
     private fun hitsInteractiveNodeAt(
         rawX: Float,
         rawY: Float,
-        screenConfig: ScreenBoundsConfig
+        screenConfig: ScreenBoundsConfig,
+        preFetchedRoot: android.view.accessibility.AccessibilityNodeInfo? = null
     ): Boolean {
-        val rootNode = try {
+        val rootNode = preFetchedRoot ?: try {
             rootInActiveWindow
         } catch (_: Exception) {
             null
@@ -621,14 +633,16 @@ class TapAccessibilityService : AccessibilityService() {
      */
     private fun isEligibleScreenContext(
         settings: TapLockSettings,
-        allowTransitionCandidate: Boolean = false
+        allowTransitionCandidate: Boolean = false,
+        preFetchedWindows: List<android.view.accessibility.AccessibilityWindowInfo>? = null,
+        preFetchedRoot: android.view.accessibility.AccessibilityNodeInfo? = null
     ): Boolean {
-        val windowsList = try {
+        val windowsList = preFetchedWindows ?: try {
             windows
         } catch (_: Exception) {
             null
         }
-        val activeRootNode = try {
+        val activeRootNode = preFetchedRoot ?: try {
             rootInActiveWindow
         } catch (_: Exception) {
             null
@@ -710,6 +724,9 @@ class TapAccessibilityService : AccessibilityService() {
                 }
             }
             if (BlankSpaceHitTester.isLockScreenBouncerShowing(activeRootNode)) {
+                return false
+            }
+            if (BlankSpaceHitTester.isLockScreenQuickSettingsExpanded(activeRootNode)) {
                 return false
             }
             return BlankSpaceHitTester.isLockScreenUnobscured(
@@ -842,10 +859,11 @@ class TapAccessibilityService : AccessibilityService() {
                             Bitmap.wrapHardwareBuffer(hardwareBuffer, colorSpace)
                         } catch (_: Exception) {
                             null
+                        } finally {
+                            try {
+                                hardwareBuffer.close()
+                            } catch (_: Exception) {}
                         }
-                        try {
-                            hardwareBuffer.close()
-                        } catch (_: Exception) {}
 
                         onResult(bitmap)
                     }
@@ -911,8 +929,17 @@ class TapAccessibilityService : AccessibilityService() {
 
         if (useSnapshot) {
             captureDisplayScreenshot(SCREENSHOT_TIMEOUT_MS) { snapshotBitmap ->
+                val activeController = flickerController
+                if (activeController == null) {
+                    if (snapshotBitmap != null && !snapshotBitmap.isRecycled) {
+                        try {
+                            snapshotBitmap.recycle()
+                        } catch (_: Exception) {}
+                    }
+                    return@captureDisplayScreenshot
+                }
                 val showOverlay = snapshotBitmap != null || useFlicker
-                controller.executeLockWithOverlay(
+                activeController.executeLockWithOverlay(
                     showOverlay = showOverlay,
                     snapshotBitmap = snapshotBitmap,
                     fadeDurationMs = settings.clampedFadeToBlackDurationMs,

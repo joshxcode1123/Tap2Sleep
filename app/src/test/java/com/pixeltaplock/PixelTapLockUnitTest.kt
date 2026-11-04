@@ -933,9 +933,9 @@ class PixelTapLockUnitTest {
     }
 
     @Test
-    fun `BuildConfig reflects version 1_0_10 and versionCode 11`() {
-        assertEquals(11, BuildConfig.VERSION_CODE)
-        assertEquals("1.0.10", BuildConfig.VERSION_NAME)
+    fun `BuildConfig reflects version 1_0_11 and versionCode 12`() {
+        assertEquals(12, BuildConfig.VERSION_CODE)
+        assertEquals("1.0.11", BuildConfig.VERSION_NAME)
         assertEquals("com.pixeltaplock", BuildConfig.APPLICATION_ID)
     }
 
@@ -2548,5 +2548,20 @@ class PixelTapLockUnitTest {
         assertFalse(BlankSpaceHitTester.isOverviewClassOrId("com.google.android.apps.nexuslauncher.NexusLauncherActivity"))
         assertFalse(BlankSpaceHitTester.isOverviewClassOrId(null, "com.google.android.apps.nexuslauncher:id/workspace"))
         assertFalse(BlankSpaceHitTester.isOverviewClassOrId(null, "com.google.android.apps.nexuslauncher:id/cell_layout"))
+    }
+
+    @Test
+    fun `isSystemUiDialogOrQsEvent distinguishes interrupting SystemUI dialogs and QS panels from benign unlock transitions`() {
+        assertTrue(BlankSpaceHitTester.isSystemUiDialogOrQsEvent("com.android.systemui.volume.VolumeDialogImpl", null))
+        assertTrue(BlankSpaceHitTester.isSystemUiDialogOrQsEvent("com.android.systemui.globalactions.GlobalActionsDialogLite", null))
+        assertTrue(BlankSpaceHitTester.isSystemUiDialogOrQsEvent("com.android.keyguard.KeyguardBouncerView", null))
+        assertTrue(BlankSpaceHitTester.isSystemUiDialogOrQsEvent("com.android.systemui.biometrics.BiometricPromptLayout", null))
+        assertTrue(BlankSpaceHitTester.isSystemUiDialogOrQsEvent("com.android.systemui.qs.QSPanel", null))
+        assertTrue(BlankSpaceHitTester.isSystemUiDialogOrQsEvent("android.widget.FrameLayout", "Quick settings."))
+
+        // Benign SystemUI status bar / notification shade window transitions during unlock
+        assertFalse(BlankSpaceHitTester.isSystemUiDialogOrQsEvent("com.android.systemui.shade.NotificationShadeWindowView", null))
+        assertFalse(BlankSpaceHitTester.isSystemUiDialogOrQsEvent("android.widget.FrameLayout", "Status bar"))
+        assertFalse(BlankSpaceHitTester.isSystemUiDialogOrQsEvent(null, null))
     }
 }

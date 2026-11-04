@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/joshxcode1123/Tap2Sleep/actions/workflows/build.yml"><img src="https://github.com/joshxcode1123/Tap2Sleep/actions/workflows/build.yml/badge.svg" alt="Build & Test" /></a>
-  <a href="https://github.com/joshxcode1123/Tap2Sleep/releases/latest"><img src="https://img.shields.io/badge/Release-v1.0.10-blue.svg?logo=github" alt="Latest Release" /></a>
+  <a href="https://github.com/joshxcode1123/Tap2Sleep/releases/latest"><img src="https://img.shields.io/badge/Release-v1.0.11-blue.svg?logo=github" alt="Latest Release" /></a>
   <img src="https://img.shields.io/badge/Platform-Android%2012%E2%80%9315%2B-3DDC84?logo=android&logoColor=white" alt="Platform" />
   <img src="https://img.shields.io/badge/Designed%20For-Google%20Pixel-4285F4?logo=google&logoColor=white" alt="Designed for Pixel" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-orange.svg" alt="License" /></a>
@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="https://github.com/joshxcode1123/Tap2Sleep/releases/latest">
-    <img src="https://img.shields.io/badge/⬇%EF%B8%8F_Download_APK-Tap2Sleep--v1.0.10.apk-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="Download APK" />
+    <img src="https://img.shields.io/badge/⬇%EF%B8%8F_Download_APK-Tap2Sleep--v1.0.11.apk-2ea44f?style=for-the-badge&logo=android&logoColor=white" alt="Download APK" />
   </a>
 </p>
 
@@ -41,8 +41,8 @@ Replicates the physical Power Button screen-off behavior by allowing users to **
 
 - **Hybrid Blank-Space Detection (Android 15–17 Hardened):**
   - **Check A (Hit-Test):** Traverses `AccessibilityNodeInfo` to verify taps land on empty workspace/lockscreen containers rather than interactive leaves (app icons, widgets, folders, notification cards, QS tiles, or shortcuts).
-  - **Check B (Event Correlation Debounce):** Solves modern Android `ACTION_OUTSIDE` `(0, 0)` coordinate masking by debouncing against interactive framework accessibility events (`TYPE_VIEW_CLICKED`, `TYPE_VIEW_SCROLLED`, `TYPE_WINDOW_STATE_CHANGED`).
-  - **Check C (Workspace & Transition Filter):** Accepts taps during gesture-navigation app-close transitions while the launcher settles, and respects on-screen keyboards (IME) so typing never triggers an accidental lock.
+  - **Check B (Event Correlation Debounce):** Solves modern Android `ACTION_OUTSIDE` `(0, 0)` coordinate masking by debouncing against interactive framework accessibility events (`TYPE_VIEW_CLICKED`, `TYPE_VIEW_SCROLLED`, `TYPE_WINDOW_STATE_CHANGED`), including SystemUI dialogs, volume sliders, power menu, biometric prompts, bouncer, and Quick Settings panels.
+  - **Check C (Workspace & Transition Filter):** Accepts taps during gesture-navigation app-close transitions while the launcher settles, rejects taps when the App Drawer, Overview/Recents, or Lock Screen Quick Settings shade is expanded, and respects on-screen keyboards (IME) so typing never triggers an accidental lock.
 
 - **Non-Blocking Touch Observer:**
   - Employs a 1×1 pixel transparent overlay (`alpha = 0f`) with `FLAG_WATCH_OUTSIDE_TOUCH` and `FLAG_NOT_FOCUSABLE`. Never intercepts or delays normal user touches or system dialogs.

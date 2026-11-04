@@ -349,9 +349,17 @@ class FlickerProtectionOverlayController(
                         activeSnapshotImageView?.alpha = alphaVal
                     }
                     addListener(object : AnimatorListenerAdapter() {
+                        private var isCancelled = false
+
+                        override fun onAnimationCancel(animation: Animator) {
+                            isCancelled = true
+                        }
+
                         override fun onAnimationEnd(animation: Animator) {
-                            activeSnapshotImageView?.alpha = 0.0f
-                            fireLockOnce()
+                            if (!isCancelled) {
+                                activeSnapshotImageView?.alpha = 0.0f
+                                fireLockOnce()
+                            }
                         }
                     })
                 }
@@ -396,9 +404,6 @@ class FlickerProtectionOverlayController(
         // Fallback only in case doOnPreDraw never fires due to a stalled WindowManager transaction
         val fallbackRunnable = Runnable {
             pendingPreDrawFallbackRunnable = null
-            if (snapshotBitmap != null && clampedFadeMs > 0L) {
-                startFadeAnimationIfPresent()
-            }
             fireLockOnce()
         }
         pendingPreDrawFallbackRunnable = fallbackRunnable
@@ -442,14 +447,9 @@ class FlickerProtectionOverlayController(
         lastAttachedBounds = null
         activeFadeAnimator?.cancel()
         activeFadeAnimator = null
+        activeSnapshotImageView?.setImageDrawable(null)
         activeSnapshotImageView = null
-        activeSnapshotBitmap?.let { bmp ->
-            if (!bmp.isRecycled) {
-                try {
-                    bmp.recycle()
-                } catch (_: Exception) {}
-            }
-        }
+        val bitmapToRecycle = activeSnapshotBitmap
         activeSnapshotBitmap = null
         if (view != null) {
             try {
@@ -463,6 +463,11 @@ class FlickerProtectionOverlayController(
                     // Ignore
                 }
             }
+        }
+        if (bitmapToRecycle != null && !bitmapToRecycle.isRecycled) {
+            try {
+                bitmapToRecycle.recycle()
+            } catch (_: Exception) {}
         }
     }
 
