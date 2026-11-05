@@ -451,7 +451,16 @@ class PixelTapLockUnitTest {
     @Test
     fun `settings model clamps out-of-range values to safe bounds`() {
         val defaultSettings = TapLockSettings()
-        assertEquals(600, defaultSettings.clampedLockScreenWakeGraceMs)
+        assertEquals(true, defaultSettings.enableHomeScreen)
+        assertEquals(true, defaultSettings.enableLockScreen)
+        assertEquals(300, defaultSettings.clampedDoubleTapTimeoutMs)
+        assertEquals(0, defaultSettings.clampedLockScreenWakeGraceMs)
+        assertEquals(true, defaultSettings.simulatePowerButton)
+        assertEquals(250, defaultSettings.clampedFadeToBlackDurationMs)
+        assertEquals(false, defaultSettings.enableFlickerProtection)
+        assertEquals(false, defaultSettings.enableLockScreenFlickerProtection)
+        assertEquals(24, defaultSettings.clampedPreLockBlackoutDelayMs)
+        assertEquals(300, defaultSettings.clampedPostLockHoldDurationMs)
 
         val extremeLow = TapLockSettings(
             doubleTapTimeoutMs = 20,
@@ -933,9 +942,9 @@ class PixelTapLockUnitTest {
     }
 
     @Test
-    fun `BuildConfig reflects version 1_0_11 and versionCode 12`() {
-        assertEquals(12, BuildConfig.VERSION_CODE)
-        assertEquals("1.0.11", BuildConfig.VERSION_NAME)
+    fun `BuildConfig reflects version 1_0_12 and versionCode 13`() {
+        assertEquals(13, BuildConfig.VERSION_CODE)
+        assertEquals("1.0.12", BuildConfig.VERSION_NAME)
         assertEquals("com.pixeltaplock", BuildConfig.APPLICATION_ID)
     }
 

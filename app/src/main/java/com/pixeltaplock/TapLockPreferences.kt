@@ -100,7 +100,7 @@ data class TapLockSettings(
 
         const val MIN_LOCK_SCREEN_WAKE_GRACE_MS = 0
         const val MAX_LOCK_SCREEN_WAKE_GRACE_MS = 1500
-        const val DEFAULT_LOCK_SCREEN_WAKE_GRACE_MS = 600
+        const val DEFAULT_LOCK_SCREEN_WAKE_GRACE_MS = 0
 
         const val DEFAULT_SIMULATE_POWER_BUTTON = true
         const val MIN_FADE_TO_BLACK_DURATION_MS = 100
@@ -116,7 +116,7 @@ data class TapLockSettings(
 
         const val MIN_POST_LOCK_HOLD_MS = 100
         const val MAX_POST_LOCK_HOLD_MS = 1000
-        const val DEFAULT_POST_LOCK_HOLD_MS = 400
+        const val DEFAULT_POST_LOCK_HOLD_MS = 300
     }
 }
 

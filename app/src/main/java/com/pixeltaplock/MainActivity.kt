@@ -24,7 +24,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -35,6 +38,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -46,6 +50,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -56,9 +61,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -457,13 +468,6 @@ private fun DetectionSettingsCard(
     onDoubleTapTimeoutChange: (Int) -> Unit,
     onLockScreenWakeGraceChange: (Int) -> Unit
 ) {
-    var sliderValue by remember(settings.clampedDoubleTapTimeoutMs) {
-        mutableStateOf(settings.clampedDoubleTapTimeoutMs.toFloat())
-    }
-    var wakeGraceSlider by remember(settings.clampedLockScreenWakeGraceMs) {
-        mutableStateOf(settings.clampedLockScreenWakeGraceMs.toFloat())
-    }
-
     ElevatedCard(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -497,74 +501,29 @@ private fun DetectionSettingsCard(
 
             HorizontalDivider()
 
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Double-Tap Speed Window",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "${sliderValue.roundToInt()} ms",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Text(
-                    text = "Maximum interval between taps (150ms – 500ms, default 300ms)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Slider(
-                    value = sliderValue,
-                    onValueChange = { sliderValue = it },
-                    onValueChangeFinished = {
-                        onDoubleTapTimeoutChange(sliderValue.roundToInt())
-                    },
-                    valueRange = TapLockSettings.MIN_DOUBLE_TAP_TIMEOUT_MS.toFloat()..TapLockSettings.MAX_DOUBLE_TAP_TIMEOUT_MS.toFloat()
-                )
-            }
+            MillisecondSliderWithDirectInput(
+                title = "Double-Tap Speed Window",
+                subtitle = "Maximum interval between taps (150ms – 500ms, default 300ms)",
+                currentValueMs = settings.clampedDoubleTapTimeoutMs,
+                minValueMs = TapLockSettings.MIN_DOUBLE_TAP_TIMEOUT_MS,
+                maxValueMs = TapLockSettings.MAX_DOUBLE_TAP_TIMEOUT_MS,
+                defaultValueMs = TapLockSettings.DEFAULT_DOUBLE_TAP_TIMEOUT_MS,
+                enabled = true,
+                onValueCommitted = onDoubleTapTimeoutChange
+            )
 
             HorizontalDivider()
 
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Lock Screen Wake Grace Delay",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "${wakeGraceSlider.roundToInt()} ms",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Text(
-                    text = "Delay after waking from AOD before Lock Screen double-tap to AOD is allowed, preventing wake taps from re-locking (0ms – 1500ms, default 600ms)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Slider(
-                    value = wakeGraceSlider,
-                    onValueChange = { wakeGraceSlider = it },
-                    onValueChangeFinished = {
-                        onLockScreenWakeGraceChange(wakeGraceSlider.roundToInt())
-                    },
-                    enabled = settings.enableLockScreen,
-                    valueRange = TapLockSettings.MIN_LOCK_SCREEN_WAKE_GRACE_MS.toFloat()..TapLockSettings.MAX_LOCK_SCREEN_WAKE_GRACE_MS.toFloat()
-                )
-            }
+            MillisecondSliderWithDirectInput(
+                title = "Lock Screen Wake Grace Delay",
+                subtitle = "Delay after waking from AOD before Lock Screen double-tap to AOD is allowed, preventing wake taps from re-locking (0ms – 1500ms, default 0ms)",
+                currentValueMs = settings.clampedLockScreenWakeGraceMs,
+                minValueMs = TapLockSettings.MIN_LOCK_SCREEN_WAKE_GRACE_MS,
+                maxValueMs = TapLockSettings.MAX_LOCK_SCREEN_WAKE_GRACE_MS,
+                defaultValueMs = TapLockSettings.DEFAULT_LOCK_SCREEN_WAKE_GRACE_MS,
+                enabled = settings.enableLockScreen,
+                onValueCommitted = onLockScreenWakeGraceChange
+            )
         }
     }
 }
@@ -581,16 +540,6 @@ private fun FlickerProtectionCard(
     onPreLockDelayChange: (Int) -> Unit,
     onPostLockHoldChange: (Int) -> Unit
 ) {
-    var fadeDurationSlider by remember(settings.clampedFadeToBlackDurationMs) {
-        mutableStateOf(settings.clampedFadeToBlackDurationMs.toFloat())
-    }
-    var preDelaySlider by remember(settings.clampedPreLockBlackoutDelayMs) {
-        mutableStateOf(settings.clampedPreLockBlackoutDelayMs.toFloat())
-    }
-    var postHoldSlider by remember(settings.clampedPostLockHoldDurationMs) {
-        mutableStateOf(settings.clampedPostLockHoldDurationMs.toFloat())
-    }
-
     val anyFlickerMaskEnabled =
         settings.enableFlickerProtection || settings.enableLockScreenFlickerProtection || settings.simulatePowerButton
 
@@ -634,35 +583,15 @@ private fun FlickerProtectionCard(
             AnimatedVisibility(visible = settings.simulatePowerButton) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Fade to Black Speed",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "${fadeDurationSlider.roundToInt()} ms",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Text(
-                        text = "Controls how quickly and smoothly the Home Screen snapshot fades into black during turn-off (100ms – 800ms, default 250ms)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Slider(
-                        value = fadeDurationSlider,
-                        onValueChange = { fadeDurationSlider = it },
-                        onValueChangeFinished = {
-                            onFadeDurationChange(fadeDurationSlider.roundToInt())
-                        },
-                        valueRange = TapLockSettings.MIN_FADE_TO_BLACK_DURATION_MS.toFloat()..TapLockSettings.MAX_FADE_TO_BLACK_DURATION_MS.toFloat()
+                    MillisecondSliderWithDirectInput(
+                        title = "Fade to Black Speed",
+                        subtitle = "Controls how quickly and smoothly the Home Screen snapshot fades into black during turn-off (100ms – 800ms, default 250ms)",
+                        currentValueMs = settings.clampedFadeToBlackDurationMs,
+                        minValueMs = TapLockSettings.MIN_FADE_TO_BLACK_DURATION_MS,
+                        maxValueMs = TapLockSettings.MAX_FADE_TO_BLACK_DURATION_MS,
+                        defaultValueMs = TapLockSettings.DEFAULT_FADE_TO_BLACK_DURATION_MS,
+                        enabled = true,
+                        onValueCommitted = onFadeDurationChange
                     )
                 }
             }
@@ -687,76 +616,188 @@ private fun FlickerProtectionCard(
 
             HorizontalDivider()
 
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Pre-Lock Blackout Delay",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "${preDelaySlider.roundToInt()} ms",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Text(
-                    text = "Ensures the overlay frame hits the OLED panel before GLOBAL_ACTION_LOCK_SCREEN executes (0ms – 100ms, default 24ms)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Slider(
-                    value = preDelaySlider,
-                    onValueChange = { preDelaySlider = it },
-                    onValueChangeFinished = {
-                        onPreLockDelayChange(preDelaySlider.roundToInt())
-                    },
-                    enabled = anyFlickerMaskEnabled,
-                    valueRange = TapLockSettings.MIN_PRE_LOCK_DELAY_MS.toFloat()..TapLockSettings.MAX_PRE_LOCK_DELAY_MS.toFloat()
-                )
-            }
+            MillisecondSliderWithDirectInput(
+                title = "Pre-Lock Blackout Delay",
+                subtitle = "Ensures the overlay frame hits the OLED panel before GLOBAL_ACTION_LOCK_SCREEN executes (0ms – 100ms, default 24ms)",
+                currentValueMs = settings.clampedPreLockBlackoutDelayMs,
+                minValueMs = TapLockSettings.MIN_PRE_LOCK_DELAY_MS,
+                maxValueMs = TapLockSettings.MAX_PRE_LOCK_DELAY_MS,
+                defaultValueMs = TapLockSettings.DEFAULT_PRE_LOCK_DELAY_MS,
+                enabled = anyFlickerMaskEnabled,
+                onValueCommitted = onPreLockDelayChange
+            )
 
             HorizontalDivider()
 
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Post-Lock Hold Duration",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "${postHoldSlider.roundToInt()} ms",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
+            MillisecondSliderWithDirectInput(
+                title = "Post-Lock Hold Duration",
+                subtitle = "How long the snapshot or black mask stays up while the display transitions to Off / Always-On Display (100ms – 1000ms, default 300ms)",
+                currentValueMs = settings.clampedPostLockHoldDurationMs,
+                minValueMs = TapLockSettings.MIN_POST_LOCK_HOLD_MS,
+                maxValueMs = TapLockSettings.MAX_POST_LOCK_HOLD_MS,
+                defaultValueMs = TapLockSettings.DEFAULT_POST_LOCK_HOLD_MS,
+                enabled = anyFlickerMaskEnabled,
+                onValueCommitted = onPostLockHoldChange
+            )
+        }
+    }
+}
+
+@Composable
+private fun MillisecondSliderWithDirectInput(
+    title: String,
+    subtitle: String,
+    currentValueMs: Int,
+    minValueMs: Int,
+    maxValueMs: Int,
+    defaultValueMs: Int,
+    enabled: Boolean,
+    onValueCommitted: (Int) -> Unit
+) {
+    var sliderValue by remember(currentValueMs) {
+        mutableStateOf(currentValueMs.toFloat())
+    }
+    var showDirectInputDialog by rememberSaveable { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Surface(
+                onClick = { showDirectInputDialog = true },
+                enabled = enabled,
+                shape = MaterialTheme.shapes.small,
+                color = if (enabled) {
+                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                 }
+            ) {
                 Text(
-                    text = "How long the snapshot or black mask stays up while the display transitions to Off / Always-On Display (100ms – 1000ms, default 400ms)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Slider(
-                    value = postHoldSlider,
-                    onValueChange = { postHoldSlider = it },
-                    onValueChangeFinished = {
-                        onPostLockHoldChange(postHoldSlider.roundToInt())
+                    text = "${sliderValue.roundToInt()} ms",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (enabled) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                     },
-                    enabled = anyFlickerMaskEnabled,
-                    valueRange = TapLockSettings.MIN_POST_LOCK_HOLD_MS.toFloat()..TapLockSettings.MAX_POST_LOCK_HOLD_MS.toFloat()
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                 )
             }
         }
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Slider(
+            value = sliderValue,
+            onValueChange = { sliderValue = it },
+            onValueChangeFinished = {
+                onValueCommitted(sliderValue.roundToInt().coerceIn(minValueMs, maxValueMs))
+            },
+            enabled = enabled,
+            valueRange = minValueMs.toFloat()..maxValueMs.toFloat()
+        )
+    }
+
+    if (showDirectInputDialog) {
+        val initialText = sliderValue.roundToInt().toString()
+        var textFieldValue by remember {
+            mutableStateOf(
+                TextFieldValue(
+                    text = initialText,
+                    selection = TextRange(0, initialText.length)
+                )
+            )
+        }
+        val focusRequester = remember { FocusRequester() }
+
+        val commitTypedValue = {
+            val parsed = textFieldValue.text.trim().toIntOrNull()
+            if (parsed != null) {
+                val clamped = parsed.coerceIn(minValueMs, maxValueMs)
+                sliderValue = clamped.toFloat()
+                onValueCommitted(clamped)
+            }
+            showDirectInputDialog = false
+        }
+
+        LaunchedEffect(Unit) {
+            focusRequester.requestFocus()
+        }
+
+        AlertDialog(
+            onDismissRequest = { showDirectInputDialog = false },
+            title = {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Enter a value between ${minValueMs} ms and ${maxValueMs} ms (default ${defaultValueMs} ms):",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = textFieldValue,
+                        onValueChange = { newValue ->
+                            val filtered = newValue.text.filter { it.isDigit() }.take(5)
+                            textFieldValue = newValue.copy(text = filtered)
+                        },
+                        singleLine = true,
+                        suffix = { Text("ms") },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Number,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = { commitTypedValue() }
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = commitTypedValue) {
+                    Text("Apply")
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        onClick = {
+                            val clampedDefault = defaultValueMs.coerceIn(minValueMs, maxValueMs)
+                            sliderValue = clampedDefault.toFloat()
+                            onValueCommitted(clampedDefault)
+                            showDirectInputDialog = false
+                        }
+                    ) {
+                        Text("Default (${defaultValueMs} ms)")
+                    }
+                    TextButton(onClick = { showDirectInputDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            }
+        )
     }
 }
 
