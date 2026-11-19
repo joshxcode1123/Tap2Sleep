@@ -24,7 +24,17 @@ import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
+import androidx.core.content.ContextCompat
 import androidx.core.view.doOnPreDraw
+
+internal fun Bitmap?.recycleSafely() {
+    if (this != null && !isRecycled) {
+        try {
+            recycle()
+        } catch (_: Exception) {
+        }
+    }
+}
 
 data class OverlayGeometry(
     val widthPx: Int,
@@ -56,12 +66,14 @@ class FlickerProtectionOverlayController(
     private var activeFadeAnimator: ValueAnimator? = null
     private var isLockSequenceInFlight = false
     private var hasTriggeredPostOffRemoval = false
+    private var lockSequenceGeneration: Long = 0L
     private var lastAttachedBounds: Rect? = null
 
     fun isLockInProgress(): Boolean = isLockSequenceInFlight
 
     private var pendingPreLockDelayRunnable: Runnable? = null
     private var pendingPreDrawFallbackRunnable: Runnable? = null
+    private var pendingFrameCallback: Choreographer.FrameCallback? = null
 
     private val hardSafetyRemoveRunnable = Runnable {
         removeOverlayImmediately()
@@ -85,13 +97,7 @@ class FlickerProtectionOverlayController(
                 val display = displayManager.getDisplay(Display.DEFAULT_DISPLAY)
                 if (display != null) {
                     if (isDisplayOffOrDozing(display.state)) {
-                        if (activeSnapshotBitmap != null) {
-                            // Turn-off transition is finished and panel has reached STATE_OFF or STATE_DOZE (AOD).
-                            // Remove snapshot immediately so AOD clock is not delayed or obscured by a frozen Home Screen.
-                            removeOverlayImmediately()
-                        } else {
-                            schedulePostOffHoldRemoval(currentHoldDurationMs)
-                        }
+                        handleDisplayOffOrDozing(currentHoldDurationMs)
                     } else if (hasTriggeredPostOffRemoval && display.state == Display.STATE_ON) {
                         removeOverlayImmediately()
                     }
@@ -116,25 +122,37 @@ class FlickerProtectionOverlayController(
         }
     }
 
+    private var isDisplayListenerRegistered = false
     private var isReceiverRegistered = false
     private var currentHoldDurationMs: Long = TapLockSettings.DEFAULT_POST_LOCK_HOLD_MS.toLong()
 
     fun startListening() {
-        displayManager.registerDisplayListener(displayListener, mainHandler)
+        if (!isDisplayListenerRegistered) {
+            displayManager.registerDisplayListener(displayListener, mainHandler)
+            isDisplayListenerRegistered = true
+        }
         if (!isReceiverRegistered) {
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_OFF)
                 addAction(Intent.ACTION_SCREEN_ON)
                 addAction(Intent.ACTION_USER_PRESENT)
             }
-            context.registerReceiver(screenReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            ContextCompat.registerReceiver(
+                context,
+                screenReceiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
             isReceiverRegistered = true
         }
     }
 
     fun stopListening() {
         removeOverlayImmediately()
-        displayManager.unregisterDisplayListener(displayListener)
+        if (isDisplayListenerRegistered) {
+            displayManager.unregisterDisplayListener(displayListener)
+            isDisplayListenerRegistered = false
+        }
         if (isReceiverRegistered) {
             try {
                 context.unregisterReceiver(screenReceiver)
@@ -159,18 +177,7 @@ class FlickerProtectionOverlayController(
         val updatedParams = buildOverlayLayoutParams(maxBounds)
         try {
             windowManager.updateViewLayout(view, updatedParams)
-            if (view.childCount > 0) {
-                val child = view.getChildAt(0)
-                val halfMargin = SAFETY_OVERSIZE_MARGIN_PX / 2
-                val lp = FrameLayout.LayoutParams(
-                    maxBounds.width(),
-                    maxBounds.height()
-                ).apply {
-                    gravity = Gravity.TOP or Gravity.START
-                    setMargins(halfMargin, halfMargin, 0, 0)
-                }
-                child.layoutParams = lp
-            }
+            activeSnapshotImageView?.layoutParams = buildSnapshotLayoutParams(maxBounds)
         } catch (_: IllegalArgumentException) {
             // View was detached concurrently
         }
@@ -240,23 +247,16 @@ class FlickerProtectionOverlayController(
 
         if (!showOverlay) {
             removeOverlayImmediately()
-            if (snapshotBitmap != null && !snapshotBitmap.isRecycled) {
-                try {
-                    snapshotBitmap.recycle()
-                } catch (_: Exception) {}
-            }
+            snapshotBitmap.recycleSafely()
             performLockAction()
             return
         }
 
         if (isLockSequenceInFlight) {
-            if (snapshotBitmap != null && !snapshotBitmap.isRecycled) {
-                try {
-                    snapshotBitmap.recycle()
-                } catch (_: Exception) {}
-            }
+            snapshotBitmap.recycleSafely()
             return
         }
+        val sequenceId = ++lockSequenceGeneration
         isLockSequenceInFlight = true
         hasTriggeredPostOffRemoval = false
 
@@ -296,13 +296,7 @@ class FlickerProtectionOverlayController(
 
         if (!attached) {
             isLockSequenceInFlight = false
-            activeSnapshotBitmap?.let { bmp ->
-                if (!bmp.isRecycled) {
-                    try {
-                        bmp.recycle()
-                    } catch (_: Exception) {}
-                }
-            }
+            activeSnapshotBitmap.recycleSafely()
             activeSnapshotBitmap = null
             performLockAction()
             return
@@ -319,7 +313,11 @@ class FlickerProtectionOverlayController(
 
         var lockActionFired = false
         val fireLockOnce = {
-            if (!lockActionFired && isLockSequenceInFlight && activeOverlayView != null) {
+            if (!lockActionFired &&
+                sequenceId == lockSequenceGeneration &&
+                isLockSequenceInFlight &&
+                activeOverlayView === overlayView
+            ) {
                 lockActionFired = true
                 cancelPreLockCallbacks()
                 val lockSucceeded = performLockAction()
@@ -329,11 +327,7 @@ class FlickerProtectionOverlayController(
                     // Check if display already transitioned to OFF/DOZE immediately
                     val display = displayManager.getDisplay(Display.DEFAULT_DISPLAY)
                     if (display != null && isDisplayOffOrDozing(display.state)) {
-                        if (activeSnapshotBitmap != null) {
-                            removeOverlayImmediately()
-                        } else {
-                            schedulePostOffHoldRemoval(clampedPostHoldMs)
-                        }
+                        handleDisplayOffOrDozing(clampedPostHoldMs)
                     }
                 }
             }
@@ -369,13 +363,23 @@ class FlickerProtectionOverlayController(
         }
 
         overlayView.doOnPreDraw {
+            if (sequenceId != lockSequenceGeneration ||
+                !isLockSequenceInFlight ||
+                activeOverlayView !== overlayView
+            ) {
+                return@doOnPreDraw
+            }
             // View traversal reached pre-draw; cancel the pre-draw fallback timer
             pendingPreDrawFallbackRunnable?.let { mainHandler.removeCallbacks(it) }
             pendingPreDrawFallbackRunnable = null
 
-            Choreographer.getInstance().postFrameCallback {
-                if (!isLockSequenceInFlight || activeOverlayView == null) {
-                    return@postFrameCallback
+            val frameCallback = Choreographer.FrameCallback {
+                pendingFrameCallback = null
+                if (sequenceId != lockSequenceGeneration ||
+                    !isLockSequenceInFlight ||
+                    activeOverlayView !== overlayView
+                ) {
+                    return@FrameCallback
                 }
                 if (snapshotBitmap != null && clampedFadeMs > 0L) {
                     startFadeAnimationIfPresent()
@@ -386,19 +390,19 @@ class FlickerProtectionOverlayController(
                     }
                     pendingPreLockDelayRunnable = fallbackDelayRunnable
                     mainHandler.postDelayed(fallbackDelayRunnable, clampedFadeMs + 100L)
+                } else if (clampedPreDelayMs <= 0L) {
+                    fireLockOnce()
                 } else {
-                    if (clampedPreDelayMs <= 0L) {
+                    val delayRunnable = Runnable {
+                        pendingPreLockDelayRunnable = null
                         fireLockOnce()
-                    } else {
-                        val delayRunnable = Runnable {
-                            pendingPreLockDelayRunnable = null
-                            fireLockOnce()
-                        }
-                        pendingPreLockDelayRunnable = delayRunnable
-                        mainHandler.postDelayed(delayRunnable, clampedPreDelayMs)
                     }
+                    pendingPreLockDelayRunnable = delayRunnable
+                    mainHandler.postDelayed(delayRunnable, clampedPreDelayMs)
                 }
             }
+            pendingFrameCallback = frameCallback
+            Choreographer.getInstance().postFrameCallback(frameCallback)
         }
 
         // Fallback only in case doOnPreDraw never fires due to a stalled WindowManager transaction
@@ -413,6 +417,16 @@ class FlickerProtectionOverlayController(
             clampedPreDelayMs + PRE_DRAW_FALLBACK_SLACK_MS
         }
         mainHandler.postDelayed(fallbackRunnable, initialFallbackTimeout)
+    }
+
+    private fun handleDisplayOffOrDozing(holdDurationMs: Long) {
+        if (activeSnapshotBitmap != null) {
+            // Turn-off transition is finished and panel has reached STATE_OFF or STATE_DOZE (AOD).
+            // Remove snapshot immediately so AOD clock is not delayed or obscured by a frozen Home Screen.
+            removeOverlayImmediately()
+        } else {
+            schedulePostOffHoldRemoval(holdDurationMs)
+        }
     }
 
     private fun schedulePostOffHoldRemoval(holdDurationMs: Long) {
@@ -430,9 +444,16 @@ class FlickerProtectionOverlayController(
         pendingPreLockDelayRunnable = null
         pendingPreDrawFallbackRunnable?.let { mainHandler.removeCallbacks(it) }
         pendingPreDrawFallbackRunnable = null
+        pendingFrameCallback?.let { Choreographer.getInstance().removeFrameCallback(it) }
+        pendingFrameCallback = null
     }
 
     fun removeOverlayImmediately() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { removeOverlayImmediately() }
+            return
+        }
+        lockSequenceGeneration++
         cancelPreLockCallbacks()
         mainHandler.removeCallbacks(hardSafetyRemoveRunnable)
         mainHandler.removeCallbacks(postOffHoldRemoveRunnable)
@@ -464,15 +485,22 @@ class FlickerProtectionOverlayController(
                 }
             }
         }
-        if (bitmapToRecycle != null && !bitmapToRecycle.isRecycled) {
-            try {
-                bitmapToRecycle.recycle()
-            } catch (_: Exception) {}
-        }
+        bitmapToRecycle.recycleSafely()
     }
 
     private fun queryRealtimeMaximumBounds(): Rect {
         return windowManager.maximumWindowMetrics.bounds
+    }
+
+    private fun buildSnapshotLayoutParams(bounds: Rect): FrameLayout.LayoutParams {
+        val halfMargin = SAFETY_OVERSIZE_MARGIN_PX / 2
+        return FrameLayout.LayoutParams(
+            bounds.width(),
+            bounds.height()
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            setMargins(halfMargin, halfMargin, 0, 0)
+        }
     }
 
     private fun createOverlayView(snapshotBitmap: Bitmap?, bounds: Rect): FrameLayout {
@@ -515,22 +543,10 @@ class FlickerProtectionOverlayController(
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }
             activeSnapshotImageView = imageView
-            val halfMargin = SAFETY_OVERSIZE_MARGIN_PX / 2
-            val lp = FrameLayout.LayoutParams(
-                bounds.width(),
-                bounds.height()
-            ).apply {
-                gravity = Gravity.TOP or Gravity.START
-                setMargins(halfMargin, halfMargin, 0, 0)
-            }
-            root.addView(imageView, lp)
+            root.addView(imageView, buildSnapshotLayoutParams(bounds))
         }
 
         return root
-    }
-
-    private fun createPureBlackOverlayView(): FrameLayout {
-        return createOverlayView(null, queryRealtimeMaximumBounds())
     }
 
     @Suppress("DEPRECATION")

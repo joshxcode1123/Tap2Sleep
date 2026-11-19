@@ -942,9 +942,9 @@ class PixelTapLockUnitTest {
     }
 
     @Test
-    fun `BuildConfig reflects version 1_0_12 and versionCode 13`() {
-        assertEquals(13, BuildConfig.VERSION_CODE)
-        assertEquals("1.0.12", BuildConfig.VERSION_NAME)
+    fun `BuildConfig reflects version 1_0_13 and versionCode 14`() {
+        assertEquals(14, BuildConfig.VERSION_CODE)
+        assertEquals("1.0.13", BuildConfig.VERSION_NAME)
         assertEquals("com.pixeltaplock", BuildConfig.APPLICATION_ID)
     }
 
@@ -2572,5 +2572,270 @@ class PixelTapLockUnitTest {
         assertFalse(BlankSpaceHitTester.isSystemUiDialogOrQsEvent("com.android.systemui.shade.NotificationShadeWindowView", null))
         assertFalse(BlankSpaceHitTester.isSystemUiDialogOrQsEvent("android.widget.FrameLayout", "Status bar"))
         assertFalse(BlankSpaceHitTester.isSystemUiDialogOrQsEvent(null, null))
+    }
+
+    @Test
+    fun `isLockScreenSnapshotUnobscured validates SystemUI Z-order, showWhenLocked apps, IME, and SystemUI height`() {
+        val allowedLaunchers = setOf(
+            "com.google.android.apps.nexuslauncher",
+            "com.android.launcher3"
+        )
+        val screenHeight = 2992
+
+        val systemUiAppWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = true,
+            isFocused = true,
+            packageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight)
+        )
+        val launcherBehindLockScreen = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = false,
+            isFocused = false,
+            packageName = "com.google.android.apps.nexuslauncher",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight)
+        )
+
+        // 1. Active SystemUI window (even with launcher behind it in Z-order) -> ALLOWED
+        assertTrue(
+            BlankSpaceHitTester.isLockScreenSnapshotUnobscured(
+                windows = listOf(systemUiAppWindow, launcherBehindLockScreen),
+                activeRootPackageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = screenHeight
+            )
+        )
+
+        // 2. Launcher window ordered ABOVE SystemUI in Z-order -> REJECTED
+        assertFalse(
+            BlankSpaceHitTester.isLockScreenSnapshotUnobscured(
+                windows = listOf(launcherBehindLockScreen, systemUiAppWindow),
+                activeRootPackageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = screenHeight
+            )
+        )
+
+        // 3. showWhenLocked Camera or Photos window (even unfocused) -> REJECTED
+        val showWhenLockedCamera = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = false,
+            isFocused = false,
+            packageName = "com.google.android.GoogleCamera",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight)
+        )
+        assertFalse(
+            BlankSpaceHitTester.isLockScreenSnapshotUnobscured(
+                windows = listOf(systemUiAppWindow, showWhenLockedCamera),
+                activeRootPackageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = screenHeight
+            )
+        )
+
+        // 4. Transitioning app window with null package name -> REJECTED
+        val nullPkgWindow = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            isActive = false,
+            isFocused = false,
+            packageName = null,
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight)
+        )
+        assertFalse(
+            BlankSpaceHitTester.isLockScreenSnapshotUnobscured(
+                windows = listOf(systemUiAppWindow, nullPkgWindow),
+                activeRootPackageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = screenHeight
+            )
+        )
+
+        // 5. Visible vs dismissed IME while locked
+        val visibleIme = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_INPUT_METHOD,
+            isActive = false,
+            isFocused = false,
+            packageName = "com.google.android.inputmethod.latin",
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 1800, 1344, screenHeight)
+        )
+        assertFalse(
+            BlankSpaceHitTester.isLockScreenSnapshotUnobscured(
+                windows = listOf(visibleIme, systemUiAppWindow),
+                activeRootPackageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = screenHeight
+            )
+        )
+        val dismissedIme = visibleIme.copy(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, screenHeight, 1344, screenHeight)
+        )
+        assertTrue(
+            BlankSpaceHitTester.isLockScreenSnapshotUnobscured(
+                windows = listOf(dismissedIme, systemUiAppWindow),
+                activeRootPackageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = screenHeight
+            )
+        )
+
+        // 6. TYPE_SYSTEM SystemUI window >= 50% height -> ALLOWED; < 50% height (status bar) -> REJECTED
+        val fullSystemUiKeyguard = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_SYSTEM,
+            isActive = true,
+            isFocused = true,
+            packageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, screenHeight)
+        )
+        assertTrue(
+            BlankSpaceHitTester.isLockScreenSnapshotUnobscured(
+                windows = listOf(fullSystemUiKeyguard),
+                activeRootPackageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = screenHeight
+            )
+        )
+        val statusBarOnly = fullSystemUiKeyguard.copy(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 144)
+        )
+        assertFalse(
+            BlankSpaceHitTester.isLockScreenSnapshotUnobscured(
+                windows = listOf(statusBarOnly),
+                activeRootPackageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+                allowedLauncherPackages = allowedLaunchers,
+                screenHeightPx = screenHeight
+            )
+        )
+    }
+
+    @Test
+    fun `isLockScreenQuickSettingsSnapshotExpanded detects expanded QS panel and 4+ visible tiles while ignoring collapsed tiles`() {
+        fun qsTile(visible: Boolean = true, emptyBounds: Boolean = false) = NodeSnapshot(
+            boundsInScreen = if (emptyBounds) {
+                BlankSpaceHitTester.createRect(0, 0, 0, 0)
+            } else {
+                BlankSpaceHitTester.createRect(40, 200, 300, 350)
+            },
+            className = "com.android.systemui.qs.tileimpl.QSTileViewImpl",
+            viewIdResourceName = "com.android.systemui:id/qs_tile",
+            contentDescription = "Wi-Fi",
+            isVisibleToUser = visible,
+            isClickable = true,
+            isLongClickable = true,
+            isFocusable = true,
+            isRoot = false,
+            childCount = 0
+        )
+
+        fun wrapRoot(children: List<NodeSnapshot>) = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 2992),
+            className = "com.android.systemui.shade.NotificationPanelView",
+            viewIdResourceName = "com.android.systemui:id/notification_panel",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = true,
+            isRoot = true,
+            childCount = children.size,
+            children = children
+        )
+
+        // 1. Expanded QSPanel -> TRUE
+        val qsPanelNode = NodeSnapshot(
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 144, 1344, 1500),
+            className = "com.android.systemui.qs.QSPanel",
+            viewIdResourceName = "com.android.systemui:id/quick_settings_panel",
+            contentDescription = null,
+            isVisibleToUser = true,
+            isClickable = false,
+            isLongClickable = false,
+            isFocusable = false,
+            isRoot = false,
+            childCount = 0
+        )
+        assertTrue(BlankSpaceHitTester.isLockScreenQuickSettingsSnapshotExpanded(wrapRoot(listOf(qsPanelNode))))
+
+        // 2. Invisible or empty-bounds QSPanel -> FALSE
+        assertFalse(
+            BlankSpaceHitTester.isLockScreenQuickSettingsSnapshotExpanded(
+                wrapRoot(listOf(qsPanelNode.copy(isVisibleToUser = false)))
+            )
+        )
+        assertFalse(
+            BlankSpaceHitTester.isLockScreenQuickSettingsSnapshotExpanded(
+                wrapRoot(listOf(qsPanelNode.copy(boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 0, 0))))
+            )
+        )
+
+        // 3. 4 visible QS tiles -> TRUE; 3 visible QS tiles -> FALSE
+        assertTrue(
+            BlankSpaceHitTester.isLockScreenQuickSettingsSnapshotExpanded(
+                wrapRoot(listOf(qsTile(), qsTile(), qsTile(), qsTile()))
+            )
+        )
+        assertFalse(
+            BlankSpaceHitTester.isLockScreenQuickSettingsSnapshotExpanded(
+                wrapRoot(listOf(qsTile(), qsTile(), qsTile(), qsTile(visible = false), qsTile(emptyBounds = true)))
+            )
+        )
+    }
+
+    @Test
+    fun `resolveEffectiveHomeActiveRootPackage strips benign SystemUI bar focus but preserves obscuring shade`() {
+        val screenHeight = 2992
+        val benignStatusBar = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_SYSTEM,
+            isActive = false,
+            isFocused = false,
+            packageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 144)
+        )
+        val largeShade = WindowSnapshot(
+            type = AccessibilityWindowInfo.TYPE_SYSTEM,
+            isActive = false,
+            isFocused = false,
+            packageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+            boundsInScreen = BlankSpaceHitTester.createRect(0, 0, 1344, 1800)
+        )
+        val focusedSystemUi = benignStatusBar.copy(isFocused = true)
+
+        // Non-SystemUI package passes through unchanged
+        assertEquals(
+            "com.google.android.apps.nexuslauncher",
+            BlankSpaceHitTester.resolveEffectiveHomeActiveRootPackage(
+                activeRootPackageName = "com.google.android.apps.nexuslauncher",
+                windows = listOf(largeShade),
+                screenHeightPx = screenHeight
+            )
+        )
+
+        // Benign SystemUI status bar collapses to null
+        assertEquals(
+            null,
+            BlankSpaceHitTester.resolveEffectiveHomeActiveRootPackage(
+                activeRootPackageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+                windows = listOf(benignStatusBar),
+                screenHeightPx = screenHeight
+            )
+        )
+
+        // Large (>35%) or focused SystemUI window preserves SYSTEM_UI_PACKAGE
+        assertEquals(
+            BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+            BlankSpaceHitTester.resolveEffectiveHomeActiveRootPackage(
+                activeRootPackageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+                windows = listOf(largeShade),
+                screenHeightPx = screenHeight
+            )
+        )
+        assertEquals(
+            BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+            BlankSpaceHitTester.resolveEffectiveHomeActiveRootPackage(
+                activeRootPackageName = BlankSpaceHitTester.SYSTEM_UI_PACKAGE,
+                windows = listOf(focusedSystemUi),
+                screenHeightPx = screenHeight
+            )
+        )
     }
 }

@@ -77,7 +77,7 @@ class BlankSpaceWidgetReceiver : AppWidgetProvider() {
         ): Boolean {
             if (previousTapUptimeMillis <= 0L) return false
             val delta = currentTapUptimeMillis - previousTapUptimeMillis
-            return delta in 16L..doubleTapTimeoutMs.toLong()
+            return delta in BlankSpaceHitTester.MIN_DOUBLE_TAP_INTERVAL_MS..doubleTapTimeoutMs.toLong()
         }
 
         fun updateBlankWidget(

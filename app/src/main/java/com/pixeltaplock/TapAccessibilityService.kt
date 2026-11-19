@@ -28,7 +28,9 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowInsets
 import android.view.WindowManager
+import android.view.WindowMetrics
 import android.view.accessibility.AccessibilityEvent
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -36,8 +38,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import java.lang.ref.WeakReference
 
 /**
  * Core AccessibilityService for PixelTapLock.
@@ -117,10 +119,7 @@ class TapAccessibilityService : AccessibilityService() {
         override fun onReceive(ctx: Context?, intent: Intent?) {
             val nowUptime = SystemClock.uptimeMillis()
             when (intent?.action) {
-                Intent.ACTION_USER_PRESENT -> {
-                    lastUserPresentUptimeMillis = nowUptime
-                    lastScreenWakeUptimeMillis = 0L
-                }
+                Intent.ACTION_USER_PRESENT -> markHomeScreenActive(nowUptime)
                 Intent.ACTION_SCREEN_ON -> {
                     lastUserPresentUptimeMillis = 0L
                     val wasAwakeBefore = BlankSpaceHitTester.isDisplayFullyAwake(
@@ -129,16 +128,14 @@ class TapAccessibilityService : AccessibilityService() {
                     )
                     if (!wasAwakeBefore) {
                         lastScreenWakeUptimeMillis = maxOf(lastScreenWakeUptimeMillis, nowUptime)
-                        firstOutsideTap = null
-                        cancelPendingDoubleTapLock()
+                        resetTapState()
                     }
                     syncDisplayWakeState(nowUptime)
                 }
                 Intent.ACTION_SCREEN_OFF -> {
                     lastObservedInteractive = false
                     lastUserPresentUptimeMillis = 0L
-                    firstOutsideTap = null
-                    cancelPendingDoubleTapLock()
+                    resetTapState()
                 }
             }
         }
@@ -153,7 +150,7 @@ class TapAccessibilityService : AccessibilityService() {
         preferencesRepository = TapLockPreferencesRepository(applicationContext.tapLockDataStore)
 
         serviceScope.launch {
-            preferencesRepository.settingsFlow.collectLatest { settings ->
+            preferencesRepository.settingsFlow.collect { settings ->
                 currentSettings = settings
             }
         }
@@ -161,7 +158,7 @@ class TapAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        instance = this
+        instanceRef = WeakReference(this)
         _serviceRunningFlow.value = true
 
         startWakeTransitionTracking()
@@ -189,53 +186,53 @@ class TapAccessibilityService : AccessibilityService() {
 
         val now = SystemClock.uptimeMillis()
         val pkgStr = event.packageName?.toString()
+        val eventClassName = event.className?.toString()
+        val eventContentDesc = event.contentDescription?.toString()
+        val allowedLaunchers = resolveAllowedLauncherPackages()
 
         // If the launcher window state changed, mark device as unlocked immediately
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
-            pkgStr != null && pkgStr in resolveAllowedLauncherPackages()
+            pkgStr != null && pkgStr in allowedLaunchers
         ) {
-            lastUserPresentUptimeMillis = now
-            lastScreenWakeUptimeMillis = 0L
+            markHomeScreenActive(now)
         }
 
         // If Overview screen opened, changed, or dismissed
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
             event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED
         ) {
-            val cls = event.className?.toString().orEmpty()
+            val cls = eventClassName.orEmpty()
             if (BlankSpaceHitTester.isOverviewClassOrId(cls) ||
                 cls.contains("Recents", ignoreCase = true) ||
                 cls.contains("Overview", ignoreCase = true) ||
                 cls.contains("TaskView", ignoreCase = true)
             ) {
                 lastOverviewDismissUptimeMillis = now
-                firstOutsideTap = null
-                cancelPendingDoubleTapLock()
+                resetTapState()
             }
         }
 
         val isInteractiveEvent = BlankSpaceHitTester.isInterruptingAccessibilityEvent(
             eventType = event.eventType,
             packageName = pkgStr,
-            className = event.className?.toString(),
-            contentDescription = event.contentDescription?.toString(),
+            className = eventClassName,
+            contentDescription = eventContentDesc,
             ownPackageName = packageName,
             ownWidgetContentDescription = getString(R.string.widget_content_description),
-            allowedLauncherPackages = resolveAllowedLauncherPackages()
+            allowedLauncherPackages = allowedLaunchers
         )
 
         if (isInteractiveEvent) {
             val isSystemUiUnlockTransition = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
                 pkgStr == BlankSpaceHitTester.SYSTEM_UI_PACKAGE &&
                 !BlankSpaceHitTester.isSystemUiDialogOrQsEvent(
-                    className = event.className?.toString(),
-                    contentDescription = event.contentDescription?.toString()
+                    className = eventClassName,
+                    contentDescription = eventContentDesc
                 )
 
             if (!isSystemUiUnlockTransition) {
                 lastInteractiveEventUptimeMillis = now
-                firstOutsideTap = null
-                cancelPendingDoubleTapLock()
+                resetTapState()
             }
         }
     }
@@ -266,8 +263,8 @@ class TapAccessibilityService : AccessibilityService() {
         lastLauncherResolveUptimeMs = 0L
         lastUserPresentUptimeMillis = 0L
         lastOverviewDismissUptimeMillis = 0L
-        if (instance === this) {
-            instance = null
+        if (activeInstance() === this) {
+            instanceRef = null
         }
         _serviceRunningFlow.value = false
     }
@@ -284,7 +281,12 @@ class TapAccessibilityService : AccessibilityService() {
                 addAction(Intent.ACTION_SCREEN_OFF)
                 addAction(Intent.ACTION_USER_PRESENT)
             }
-            registerReceiver(serviceScreenWakeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            ContextCompat.registerReceiver(
+                this,
+                serviceScreenWakeReceiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
             isWakeTrackingRegistered = true
         }
     }
@@ -299,6 +301,28 @@ class TapAccessibilityService : AccessibilityService() {
             }
             isWakeTrackingRegistered = false
         }
+    }
+
+    private fun resetTapState() {
+        firstOutsideTap = null
+        cancelPendingDoubleTapLock()
+    }
+
+    private fun markHomeScreenActive(nowUptime: Long) {
+        lastUserPresentUptimeMillis = nowUptime
+        lastScreenWakeUptimeMillis = 0L
+    }
+
+    private fun isWithinWakeGrace(tapUptime: Long, nowUptime: Long, wakeGraceMs: Long): Boolean {
+        return BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
+            tapUptimeMillis = tapUptime,
+            lastScreenWakeUptimeMillis = lastScreenWakeUptimeMillis,
+            gracePeriodMs = wakeGraceMs
+        ) || BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
+            tapUptimeMillis = nowUptime,
+            lastScreenWakeUptimeMillis = lastScreenWakeUptimeMillis,
+            gracePeriodMs = wakeGraceMs
+        )
     }
 
     /**
@@ -328,15 +352,13 @@ class TapAccessibilityService : AccessibilityService() {
         lastObservedInteractive = isInteractive
 
         if (!isAwakeNow) {
-            firstOutsideTap = null
-            cancelPendingDoubleTapLock()
+            resetTapState()
             return false
         }
 
         if (!wasAwakeBefore) {
             lastScreenWakeUptimeMillis = maxOf(lastScreenWakeUptimeMillis, nowUptime)
-            firstOutsideTap = null
-            cancelPendingDoubleTapLock()
+            resetTapState()
         }
 
         return true
@@ -428,7 +450,8 @@ class TapAccessibilityService : AccessibilityService() {
         // Fast-check whether Overview / Recents (suspended apps page) is showing or was just dismissed
         val windowsList = try { windows } catch (_: Exception) { null }
         val activeRoot = try { rootInActiveWindow } catch (_: Exception) { null }
-        val maxBounds = windowManager.maximumWindowMetrics.bounds
+        val maxMetrics = windowManager.maximumWindowMetrics
+        val maxBounds = maxMetrics.bounds
         val screenWidth = maxBounds.width()
         val screenHeight = maxBounds.height()
         val allowedLaunchers = resolveAllowedLauncherPackages()
@@ -463,7 +486,10 @@ class TapAccessibilityService : AccessibilityService() {
                 settings = settings,
                 allowTransitionCandidate = true,
                 preFetchedWindows = windowsList,
-                preFetchedRoot = activeRoot
+                preFetchedRoot = activeRoot,
+                preFetchedBounds = maxBounds,
+                preFetchedLaunchers = allowedLaunchers,
+                checkOverview = false
             )
         ) {
             firstOutsideTap = null
@@ -474,21 +500,12 @@ class TapAccessibilityService : AccessibilityService() {
         val wakeGraceMs = settings.effectiveWakeGraceMs(isKeyguardLocked = isLocked)
 
         // Ignore taps occurring during the AOD / screen-wake transition to the normal Lock Screen
-        if (BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
-                tapUptimeMillis = uptimeMillis,
-                lastScreenWakeUptimeMillis = lastScreenWakeUptimeMillis,
-                gracePeriodMs = wakeGraceMs
-            ) || BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
-                tapUptimeMillis = nowUptime,
-                lastScreenWakeUptimeMillis = lastScreenWakeUptimeMillis,
-                gracePeriodMs = wakeGraceMs
-            )
-        ) {
+        if (isWithinWakeGrace(uptimeMillis, nowUptime, wakeGraceMs)) {
             firstOutsideTap = null
             return
         }
 
-        val screenConfig = buildRealtimeScreenBoundsConfig()
+        val screenConfig = buildRealtimeScreenBoundsConfig(maxMetrics)
 
         // Check A (Part 1): Reject immediately if valid coordinates fall in top status bar or bottom nav bar
         if (BlankSpaceHitTester.isWithinEdgeIgnoreZone(rawX, rawY, screenConfig)) {
@@ -509,30 +526,20 @@ class TapAccessibilityService : AccessibilityService() {
                 gracePeriodMs = wakeGraceMs
             )
         }
-        if (previousTap == null) {
-            // Check A on Tap 1 when coordinates are present
-            if (currentTap.hasValidCoordinates && hitsInteractiveNodeAt(rawX, rawY, screenConfig, activeRoot)) {
-                firstOutsideTap = null
-                return
-            }
-            firstOutsideTap = currentTap
-            return
-        }
-
-        // Evaluate if previousTap and currentTap form a valid double-tap within timeout and slop
-        val isPair = BlankSpaceHitTester.isDoubleTapPair(
+        val isDoubleTap = previousTap != null && BlankSpaceHitTester.isDoubleTapPair(
             firstTap = previousTap,
             secondTap = currentTap,
             doubleTapTimeoutMs = settings.clampedDoubleTapTimeoutMs,
             config = screenConfig
         )
-
-        if (!isPair) {
-            // Current tap becomes the new First Tap candidate (if it passes Check A)
-            if (currentTap.hasValidCoordinates && hitsInteractiveNodeAt(rawX, rawY, screenConfig, activeRoot)) {
-                firstOutsideTap = null
+        if (!isDoubleTap) {
+            // Current tap becomes the new First Tap candidate if it passes Check A
+            firstOutsideTap = if (currentTap.hasValidCoordinates &&
+                hitsInteractiveNodeAt(rawX, rawY, screenConfig, activeRoot)
+            ) {
+                null
             } else {
-                firstOutsideTap = currentTap
+                currentTap
             }
             return
         }
@@ -567,16 +574,7 @@ class TapAccessibilityService : AccessibilityService() {
             val debounceWakeGraceMs = debounceSettings.effectiveWakeGraceMs(
                 isKeyguardLocked = debounceIsLocked
             )
-            if (BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
-                    tapUptimeMillis = tap1Time,
-                    lastScreenWakeUptimeMillis = lastScreenWakeUptimeMillis,
-                    gracePeriodMs = debounceWakeGraceMs
-                ) || BlankSpaceHitTester.isWithinScreenWakeGracePeriod(
-                    tapUptimeMillis = debounceNowUptime,
-                    lastScreenWakeUptimeMillis = lastScreenWakeUptimeMillis,
-                    gracePeriodMs = debounceWakeGraceMs
-                )
-            ) {
+            if (isWithinWakeGrace(tap1Time, debounceNowUptime, debounceWakeGraceMs)) {
                 return@Runnable
             }
             val interrupted = BlankSpaceHitTester.wasInterruptedByInteractiveEvent(
@@ -635,7 +633,10 @@ class TapAccessibilityService : AccessibilityService() {
         settings: TapLockSettings,
         allowTransitionCandidate: Boolean = false,
         preFetchedWindows: List<android.view.accessibility.AccessibilityWindowInfo>? = null,
-        preFetchedRoot: android.view.accessibility.AccessibilityNodeInfo? = null
+        preFetchedRoot: android.view.accessibility.AccessibilityNodeInfo? = null,
+        preFetchedBounds: Rect? = null,
+        preFetchedLaunchers: Set<String>? = null,
+        checkOverview: Boolean = true
     ): Boolean {
         val windowsList = preFetchedWindows ?: try {
             windows
@@ -647,37 +648,25 @@ class TapAccessibilityService : AccessibilityService() {
         } catch (_: Exception) {
             null
         }
+        val windowSnapshots = BlankSpaceHitTester.toWindowSnapshots(windowsList, includeTitle = true)
         val activeRootPkg = activeRootNode?.packageName?.toString()
-            ?: try {
-                windowsList?.firstOrNull { it.isActive || it.isFocused }?.root?.packageName?.toString()
-            } catch (_: Exception) {
-                null
-            }
-        val allowedLaunchers = resolveAllowedLauncherPackages()
-        val maxBounds = windowManager.maximumWindowMetrics.bounds
+            ?: windowSnapshots?.firstOrNull { it.isActive || it.isFocused }?.packageName
+        val allowedLaunchers = preFetchedLaunchers ?: resolveAllowedLauncherPackages()
+        val maxBounds = preFetchedBounds ?: windowManager.maximumWindowMetrics.bounds
 
         val now = SystemClock.uptimeMillis()
         val isRecentUnlock = lastUserPresentUptimeMillis > 0L &&
             (now - lastUserPresentUptimeMillis) < UNLOCK_TRANSITION_WINDOW_MS
 
-        val effectiveActiveRootPkg = if (activeRootPkg == BlankSpaceHitTester.SYSTEM_UI_PACKAGE) {
-            val hasObscuringShade = windowsList?.any { win ->
-                win.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_SYSTEM &&
-                    maxBounds.height() > 0 &&
-                    (win.isFocused || win.isActive || {
-                        val r = Rect()
-                        win.getBoundsInScreen(r)
-                        (r.bottom - r.top) > (maxBounds.height() * 0.35f).toInt()
-                    }())
-            } ?: false
-            if (!hasObscuringShade) null else activeRootPkg
-        } else {
-            activeRootPkg
-        }
+        val effectiveActiveRootPkg = BlankSpaceHitTester.resolveEffectiveHomeActiveRootPackage(
+            activeRootPackageName = activeRootPkg,
+            windows = windowSnapshots,
+            screenHeightPx = maxBounds.height()
+        )
 
         if (settings.enableHomeScreen) {
-            val isHome = BlankSpaceHitTester.isHomeWorkspaceUnobscured(
-                windows = windowsList,
+            val isHome = BlankSpaceHitTester.isHomeWorkspaceSnapshotUnobscured(
+                windows = windowSnapshots,
                 activeRootPackageName = effectiveActiveRootPkg,
                 allowedLauncherPackages = allowedLaunchers,
                 screenHeightPx = maxBounds.height(),
@@ -693,7 +682,7 @@ class TapAccessibilityService : AccessibilityService() {
                 ) {
                     return false
                 }
-                if (BlankSpaceHitTester.isOverviewShowingInWindows(
+                if (checkOverview && BlankSpaceHitTester.isOverviewShowingInWindows(
                         windows = windowsList,
                         activeRootNode = activeRootNode,
                         allowedLauncherPackages = allowedLaunchers,
@@ -703,8 +692,7 @@ class TapAccessibilityService : AccessibilityService() {
                 ) {
                     return false
                 }
-                lastUserPresentUptimeMillis = now
-                lastScreenWakeUptimeMillis = 0L
+                markHomeScreenActive(now)
                 return true
             }
         }
@@ -723,14 +711,13 @@ class TapAccessibilityService : AccessibilityService() {
                     return false
                 }
             }
-            if (BlankSpaceHitTester.isLockScreenBouncerShowing(activeRootNode)) {
+            if (BlankSpaceHitTester.isLockScreenBouncerShowing(activeRootNode) ||
+                BlankSpaceHitTester.isLockScreenQuickSettingsExpanded(activeRootNode)
+            ) {
                 return false
             }
-            if (BlankSpaceHitTester.isLockScreenQuickSettingsExpanded(activeRootNode)) {
-                return false
-            }
-            return BlankSpaceHitTester.isLockScreenUnobscured(
-                windows = windowsList,
+            return BlankSpaceHitTester.isLockScreenSnapshotUnobscured(
+                windows = windowSnapshots,
                 activeRootPackageName = activeRootPkg,
                 allowedLauncherPackages = allowedLaunchers,
                 screenHeightPx = maxBounds.height()
@@ -787,8 +774,9 @@ class TapAccessibilityService : AccessibilityService() {
      * Queries real-time hardware metrics and system bar insets (never cached) to construct
      * [ScreenBoundsConfig] for Check A coordinate & edge-inset filtering.
      */
-    private fun buildRealtimeScreenBoundsConfig(): ScreenBoundsConfig {
-        val maxMetrics = windowManager.maximumWindowMetrics
+    private fun buildRealtimeScreenBoundsConfig(
+        maxMetrics: WindowMetrics = windowManager.maximumWindowMetrics
+    ): ScreenBoundsConfig {
         val bounds = maxMetrics.bounds
         val insets = maxMetrics.windowInsets.getInsetsIgnoringVisibility(
             WindowInsets.Type.statusBars() or
@@ -818,21 +806,24 @@ class TapAccessibilityService : AccessibilityService() {
         timeoutMs: Long = SCREENSHOT_TIMEOUT_MS,
         onResult: (Bitmap?) -> Unit
     ) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            onResult(null)
-            return
-        }
-
+        pendingScreenshotTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+        pendingScreenshotTimeoutRunnable = null
         isScreenshotInProgress = true
         var hasDelivered = false
-        val timeoutRunnable = Runnable {
-            if (!hasDelivered && isScreenshotInProgress) {
-                hasDelivered = true
-                isScreenshotInProgress = false
-                pendingScreenshotTimeoutRunnable = null
-                onResult(null)
+
+        fun deliverResult(bitmap: Bitmap?) {
+            if (hasDelivered || !isScreenshotInProgress) {
+                bitmap.recycleSafely()
+                return
             }
+            hasDelivered = true
+            isScreenshotInProgress = false
+            pendingScreenshotTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+            pendingScreenshotTimeoutRunnable = null
+            onResult(bitmap)
         }
+
+        val timeoutRunnable = Runnable { deliverResult(null) }
         pendingScreenshotTimeoutRunnable = timeoutRunnable
         mainHandler.postDelayed(timeoutRunnable, timeoutMs)
 
@@ -845,47 +836,31 @@ class TapAccessibilityService : AccessibilityService() {
                         if (hasDelivered || !isScreenshotInProgress) {
                             try {
                                 screenshotResult.hardwareBuffer.close()
-                            } catch (_: Exception) {}
+                            } catch (_: Exception) {
+                            }
                             return
                         }
-                        hasDelivered = true
-                        isScreenshotInProgress = false
-                        pendingScreenshotTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
-                        pendingScreenshotTimeoutRunnable = null
-
                         val hardwareBuffer = screenshotResult.hardwareBuffer
-                        val colorSpace = screenshotResult.colorSpace
                         val bitmap = try {
-                            Bitmap.wrapHardwareBuffer(hardwareBuffer, colorSpace)
+                            Bitmap.wrapHardwareBuffer(hardwareBuffer, screenshotResult.colorSpace)
                         } catch (_: Exception) {
                             null
                         } finally {
                             try {
                                 hardwareBuffer.close()
-                            } catch (_: Exception) {}
+                            } catch (_: Exception) {
+                            }
                         }
-
-                        onResult(bitmap)
+                        deliverResult(bitmap)
                     }
 
                     override fun onFailure(errorCode: Int) {
-                        if (hasDelivered || !isScreenshotInProgress) return
-                        hasDelivered = true
-                        isScreenshotInProgress = false
-                        pendingScreenshotTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
-                        pendingScreenshotTimeoutRunnable = null
-                        onResult(null)
+                        deliverResult(null)
                     }
                 }
             )
         } catch (_: Exception) {
-            if (!hasDelivered && isScreenshotInProgress) {
-                hasDelivered = true
-                isScreenshotInProgress = false
-                pendingScreenshotTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
-                pendingScreenshotTimeoutRunnable = null
-                onResult(null)
-            }
+            deliverResult(null)
         }
     }
 
@@ -900,12 +875,15 @@ class TapAccessibilityService : AccessibilityService() {
      *   (default), bypasses the overlay so SystemUI transitions directly into Always-On Display (AOD).
      */
     fun executeFlickerProtectedLock() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { executeFlickerProtectedLock() }
+            return
+        }
         val controller = flickerController
         if (isScreenshotInProgress || controller?.isLockInProgress() == true) {
             return
         }
-        cancelPendingDoubleTapLock()
-        firstOutsideTap = null
+        resetTapState()
         val settings = currentSettings
         val isLocked = isDeviceKeyguardLocked(SystemClock.uptimeMillis())
 
@@ -931,11 +909,7 @@ class TapAccessibilityService : AccessibilityService() {
             captureDisplayScreenshot(SCREENSHOT_TIMEOUT_MS) { snapshotBitmap ->
                 val activeController = flickerController
                 if (activeController == null) {
-                    if (snapshotBitmap != null && !snapshotBitmap.isRecycled) {
-                        try {
-                            snapshotBitmap.recycle()
-                        } catch (_: Exception) {}
-                    }
+                    snapshotBitmap.recycleSafely()
                     return@captureDisplayScreenshot
                 }
                 val showOverlay = snapshotBitmap != null || useFlicker
@@ -969,16 +943,18 @@ class TapAccessibilityService : AccessibilityService() {
         const val AOSP_LAUNCHER_PACKAGE = "com.android.launcher3"
 
         @Volatile
-        private var instance: TapAccessibilityService? = null
+        private var instanceRef: WeakReference<TapAccessibilityService>? = null
 
         private val _serviceRunningFlow = MutableStateFlow(false)
         val serviceRunningFlow: StateFlow<Boolean> = _serviceRunningFlow.asStateFlow()
+
+        private fun activeInstance(): TapAccessibilityService? = instanceRef?.get()
 
         /**
          * Returns current double-tap timeout in milliseconds for components like BlankSpaceWidgetReceiver.
          */
         fun getCurrentDoubleTapTimeoutMs(): Int {
-            return instance?.currentSettings?.clampedDoubleTapTimeoutMs
+            return activeInstance()?.currentSettings?.clampedDoubleTapTimeoutMs
                 ?: TapLockSettings.DEFAULT_DOUBLE_TAP_TIMEOUT_MS
         }
 
@@ -987,7 +963,7 @@ class TapAccessibilityService : AccessibilityService() {
          * "Test Lock & Flicker Mask Now" button and by BlankSpaceWidgetReceiver).
          */
         fun triggerLockNow(): Boolean {
-            val activeService = instance ?: return false
+            val activeService = activeInstance() ?: return false
             activeService.executeFlickerProtectedLock()
             return true
         }
@@ -997,7 +973,7 @@ class TapAccessibilityService : AccessibilityService() {
          * or actively bound in memory.
          */
         fun isAccessibilityServiceEnabled(context: Context): Boolean {
-            if (instance != null) return true
+            if (activeInstance() != null) return true
             val expectedComponentName = ComponentName(context, TapAccessibilityService::class.java)
             val enabledServicesSetting = Settings.Secure.getString(
                 context.contentResolver,

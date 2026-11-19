@@ -53,6 +53,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,6 +65,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
@@ -125,6 +127,7 @@ fun PixelTapLockSettingsScreen(
     repository: TapLockPreferencesRepository
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -140,15 +143,24 @@ fun PixelTapLockSettingsScreen(
     var hardwareWidthPx by remember { mutableIntStateOf(0) }
     var hardwareHeightPx by remember { mutableIntStateOf(0) }
 
+    val refreshDisplayMetrics = {
+        val maxBounds = context.getSystemService(WindowManager::class.java)?.maximumWindowMetrics?.bounds
+        if (maxBounds != null) {
+            hardwareWidthPx = maxBounds.width()
+            hardwareHeightPx = maxBounds.height()
+        }
+    }
+
+    LaunchedEffect(configuration) {
+        refreshDisplayMetrics()
+    }
+
     DisposableEffect(lifecycleOwner, context) {
         val refreshSystemState = {
             isServiceEnabledInSettings =
                 TapAccessibilityService.isAccessibilityServiceEnabled(context)
             isIgnoringBatteryOptimizations = checkIgnoringBatteryOptimizations(context)
-            val wm = context.getSystemService(WindowManager::class.java)
-            val maxBounds = wm.maximumWindowMetrics.bounds
-            hardwareWidthPx = maxBounds.width()
-            hardwareHeightPx = maxBounds.height()
+            refreshDisplayMetrics()
         }
         refreshSystemState()
 
@@ -161,6 +173,10 @@ fun PixelTapLockSettingsScreen(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
+    }
+
+    fun updateSetting(block: suspend TapLockPreferencesRepository.() -> Unit) {
+        coroutineScope.launch { repository.block() }
     }
 
     val isServiceActive = serviceConnectedInMemory || isServiceEnabledInSettings
@@ -240,18 +256,10 @@ fun PixelTapLockSettingsScreen(
             // 3. Blank-Space Detection Toggles & Double-Tap Speed / Wake Grace Sliders
             DetectionSettingsCard(
                 settings = settings,
-                onToggleHomeScreen = { enabled ->
-                    coroutineScope.launch { repository.setEnableHomeScreen(enabled) }
-                },
-                onToggleLockScreen = { enabled ->
-                    coroutineScope.launch { repository.setEnableLockScreen(enabled) }
-                },
-                onDoubleTapTimeoutChange = { timeoutMs ->
-                    coroutineScope.launch { repository.setDoubleTapTimeoutMs(timeoutMs) }
-                },
-                onLockScreenWakeGraceChange = { graceMs ->
-                    coroutineScope.launch { repository.setLockScreenWakeGraceMs(graceMs) }
-                }
+                onToggleHomeScreen = { enabled -> updateSetting { setEnableHomeScreen(enabled) } },
+                onToggleLockScreen = { enabled -> updateSetting { setEnableLockScreen(enabled) } },
+                onDoubleTapTimeoutChange = { timeoutMs -> updateSetting { setDoubleTapTimeoutMs(timeoutMs) } },
+                onLockScreenWakeGraceChange = { graceMs -> updateSetting { setLockScreenWakeGraceMs(graceMs) } }
             )
 
             // 4. QHD+ Edge-to-Edge Flicker Protection Tuning Card
@@ -259,26 +267,14 @@ fun PixelTapLockSettingsScreen(
                 settings = settings,
                 hardwareWidthPx = hardwareWidthPx,
                 hardwareHeightPx = hardwareHeightPx,
-                onToggleSimulatePowerButton = { enabled ->
-                    coroutineScope.launch { repository.setSimulatePowerButton(enabled) }
-                },
-                onFadeDurationChange = { durationMs ->
-                    coroutineScope.launch { repository.setFadeToBlackDurationMs(durationMs) }
-                },
-                onToggleFlickerProtection = { enabled ->
-                    coroutineScope.launch { repository.setEnableFlickerProtection(enabled) }
-                },
+                onToggleSimulatePowerButton = { enabled -> updateSetting { setSimulatePowerButton(enabled) } },
+                onFadeDurationChange = { durationMs -> updateSetting { setFadeToBlackDurationMs(durationMs) } },
+                onToggleFlickerProtection = { enabled -> updateSetting { setEnableFlickerProtection(enabled) } },
                 onToggleLockScreenFlickerProtection = { enabled ->
-                    coroutineScope.launch {
-                        repository.setEnableLockScreenFlickerProtection(enabled)
-                    }
+                    updateSetting { setEnableLockScreenFlickerProtection(enabled) }
                 },
-                onPreLockDelayChange = { delayMs ->
-                    coroutineScope.launch { repository.setPreLockBlackoutDelayMs(delayMs) }
-                },
-                onPostLockHoldChange = { holdMs ->
-                    coroutineScope.launch { repository.setPostLockHoldDurationMs(holdMs) }
-                }
+                onPreLockDelayChange = { delayMs -> updateSetting { setPreLockBlackoutDelayMs(delayMs) } },
+                onPostLockHoldChange = { holdMs -> updateSetting { setPostLockHoldDurationMs(holdMs) } }
             )
 
             // 5. Test Lock & Flicker Mask Now Button Card
@@ -655,7 +651,7 @@ private fun MillisecondSliderWithDirectInput(
     onValueCommitted: (Int) -> Unit
 ) {
     var sliderValue by remember(currentValueMs) {
-        mutableStateOf(currentValueMs.toFloat())
+        mutableFloatStateOf(currentValueMs.toFloat())
     }
     var showDirectInputDialog by rememberSaveable { mutableStateOf(false) }
 
@@ -712,7 +708,7 @@ private fun MillisecondSliderWithDirectInput(
         )
     }
 
-    if (showDirectInputDialog) {
+    if (showDirectInputDialog && enabled) {
         val initialText = sliderValue.roundToInt().toString()
         var textFieldValue by remember {
             mutableStateOf(
@@ -758,7 +754,14 @@ private fun MillisecondSliderWithDirectInput(
                         value = textFieldValue,
                         onValueChange = { newValue ->
                             val filtered = newValue.text.filter { it.isDigit() }.take(5)
-                            textFieldValue = newValue.copy(text = filtered)
+                            val clampedSelection = TextRange(
+                                start = newValue.selection.start.coerceIn(0, filtered.length),
+                                end = newValue.selection.end.coerceIn(0, filtered.length)
+                            )
+                            textFieldValue = TextFieldValue(
+                                text = filtered,
+                                selection = clampedSelection
+                            )
                         },
                         singleLine = true,
                         suffix = { Text("ms") },
@@ -878,29 +881,37 @@ private fun checkIgnoringBatteryOptimizations(context: Context): Boolean {
     return powerManager.isIgnoringBatteryOptimizations(context.packageName)
 }
 
-private fun openAccessibilitySettings(context: Context) {
-    val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-    try {
+private fun launchActivityOrToast(
+    context: Context,
+    intent: Intent,
+    errorMessage: String?
+): Boolean {
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    return try {
         context.startActivity(intent)
+        true
     } catch (_: Exception) {
-        Toast.makeText(context, "Unable to open Accessibility Settings", Toast.LENGTH_SHORT).show()
+        if (errorMessage != null) {
+            Toast.makeText(context, errorMessage, Toast.LENGTH_SHORT).show()
+        }
+        false
     }
 }
 
+private fun openAccessibilitySettings(context: Context) {
+    launchActivityOrToast(
+        context,
+        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS),
+        "Unable to open Accessibility Settings"
+    )
+}
+
 private fun openAppDetailsSettings(context: Context) {
-    val intent = Intent(
-        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-        Uri.parse("package:${context.packageName}")
-    ).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-    try {
-        context.startActivity(intent)
-    } catch (_: Exception) {
-        Toast.makeText(context, "Unable to open App Info", Toast.LENGTH_SHORT).show()
-    }
+    launchActivityOrToast(
+        context,
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")),
+        "Unable to open App Info"
+    )
 }
 
 @SuppressLint("BatteryLife")
@@ -908,19 +919,12 @@ private fun requestIgnoreBatteryOptimizations(context: Context) {
     val directIntent = Intent(
         Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
         Uri.parse("package:${context.packageName}")
-    ).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-    try {
-        context.startActivity(directIntent)
-    } catch (_: Exception) {
-        val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        try {
-            context.startActivity(fallbackIntent)
-        } catch (_: Exception) {
-            Toast.makeText(context, "Unable to open Battery Optimization settings", Toast.LENGTH_SHORT).show()
-        }
+    )
+    if (!launchActivityOrToast(context, directIntent, errorMessage = null)) {
+        launchActivityOrToast(
+            context,
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+            "Unable to open Battery Optimization settings"
+        )
     }
 }

@@ -150,44 +150,60 @@ class TapLockPreferencesRepository(private val dataStore: DataStore<Preferences>
                     ?: TapLockSettings.DEFAULT_ENABLE_HOME_SCREEN,
                 enableLockScreen = prefs[Keys.ENABLE_LOCK_SCREEN]
                     ?: TapLockSettings.DEFAULT_ENABLE_LOCK_SCREEN,
-                doubleTapTimeoutMs = (prefs[Keys.DOUBLE_TAP_TIMEOUT_MS]
-                    ?: TapLockSettings.DEFAULT_DOUBLE_TAP_TIMEOUT_MS)
-                    .coerceIn(
-                        TapLockSettings.MIN_DOUBLE_TAP_TIMEOUT_MS,
-                        TapLockSettings.MAX_DOUBLE_TAP_TIMEOUT_MS
-                    ),
-                lockScreenWakeGraceMs = (prefs[Keys.LOCK_SCREEN_WAKE_GRACE_MS]
-                    ?: TapLockSettings.DEFAULT_LOCK_SCREEN_WAKE_GRACE_MS)
-                    .coerceIn(
-                        TapLockSettings.MIN_LOCK_SCREEN_WAKE_GRACE_MS,
-                        TapLockSettings.MAX_LOCK_SCREEN_WAKE_GRACE_MS
-                    ),
+                doubleTapTimeoutMs = prefs.clampedInt(
+                    Keys.DOUBLE_TAP_TIMEOUT_MS,
+                    TapLockSettings.DEFAULT_DOUBLE_TAP_TIMEOUT_MS,
+                    TapLockSettings.MIN_DOUBLE_TAP_TIMEOUT_MS,
+                    TapLockSettings.MAX_DOUBLE_TAP_TIMEOUT_MS
+                ),
+                lockScreenWakeGraceMs = prefs.clampedInt(
+                    Keys.LOCK_SCREEN_WAKE_GRACE_MS,
+                    TapLockSettings.DEFAULT_LOCK_SCREEN_WAKE_GRACE_MS,
+                    TapLockSettings.MIN_LOCK_SCREEN_WAKE_GRACE_MS,
+                    TapLockSettings.MAX_LOCK_SCREEN_WAKE_GRACE_MS
+                ),
                 simulatePowerButton = prefs[Keys.SIMULATE_POWER_BUTTON]
                     ?: TapLockSettings.DEFAULT_SIMULATE_POWER_BUTTON,
-                fadeToBlackDurationMs = (prefs[Keys.FADE_TO_BLACK_DURATION_MS]
-                    ?: TapLockSettings.DEFAULT_FADE_TO_BLACK_DURATION_MS)
-                    .coerceIn(
-                        TapLockSettings.MIN_FADE_TO_BLACK_DURATION_MS,
-                        TapLockSettings.MAX_FADE_TO_BLACK_DURATION_MS
-                    ),
+                fadeToBlackDurationMs = prefs.clampedInt(
+                    Keys.FADE_TO_BLACK_DURATION_MS,
+                    TapLockSettings.DEFAULT_FADE_TO_BLACK_DURATION_MS,
+                    TapLockSettings.MIN_FADE_TO_BLACK_DURATION_MS,
+                    TapLockSettings.MAX_FADE_TO_BLACK_DURATION_MS
+                ),
                 enableFlickerProtection = prefs[Keys.ENABLE_FLICKER_PROTECTION]
                     ?: TapLockSettings.DEFAULT_ENABLE_FLICKER_PROTECTION,
                 enableLockScreenFlickerProtection = prefs[Keys.ENABLE_LOCK_SCREEN_FLICKER_PROTECTION]
                     ?: TapLockSettings.DEFAULT_ENABLE_LOCK_SCREEN_FLICKER_PROTECTION,
-                preLockBlackoutDelayMs = (prefs[Keys.PRE_LOCK_BLACKOUT_DELAY_MS]
-                    ?: TapLockSettings.DEFAULT_PRE_LOCK_DELAY_MS)
-                    .coerceIn(
-                        TapLockSettings.MIN_PRE_LOCK_DELAY_MS,
-                        TapLockSettings.MAX_PRE_LOCK_DELAY_MS
-                    ),
-                postLockHoldDurationMs = (prefs[Keys.POST_LOCK_HOLD_DURATION_MS]
-                    ?: TapLockSettings.DEFAULT_POST_LOCK_HOLD_MS)
-                    .coerceIn(
-                        TapLockSettings.MIN_POST_LOCK_HOLD_MS,
-                        TapLockSettings.MAX_POST_LOCK_HOLD_MS
-                    )
+                preLockBlackoutDelayMs = prefs.clampedInt(
+                    Keys.PRE_LOCK_BLACKOUT_DELAY_MS,
+                    TapLockSettings.DEFAULT_PRE_LOCK_DELAY_MS,
+                    TapLockSettings.MIN_PRE_LOCK_DELAY_MS,
+                    TapLockSettings.MAX_PRE_LOCK_DELAY_MS
+                ),
+                postLockHoldDurationMs = prefs.clampedInt(
+                    Keys.POST_LOCK_HOLD_DURATION_MS,
+                    TapLockSettings.DEFAULT_POST_LOCK_HOLD_MS,
+                    TapLockSettings.MIN_POST_LOCK_HOLD_MS,
+                    TapLockSettings.MAX_POST_LOCK_HOLD_MS
+                )
             )
         }
+
+    private fun Preferences.clampedInt(
+        key: Preferences.Key<Int>,
+        default: Int,
+        min: Int,
+        max: Int
+    ): Int = (this[key] ?: default).coerceIn(min, max)
+
+    private suspend fun editClampedInt(
+        key: Preferences.Key<Int>,
+        value: Int,
+        min: Int,
+        max: Int
+    ) {
+        dataStore.edit { it[key] = value.coerceIn(min, max) }
+    }
 
     suspend fun setEnableHomeScreen(enabled: Boolean) {
         dataStore.edit { it[Keys.ENABLE_HOME_SCREEN] = enabled }
@@ -198,21 +214,21 @@ class TapLockPreferencesRepository(private val dataStore: DataStore<Preferences>
     }
 
     suspend fun setDoubleTapTimeoutMs(timeoutMs: Int) {
-        dataStore.edit {
-            it[Keys.DOUBLE_TAP_TIMEOUT_MS] = timeoutMs.coerceIn(
-                TapLockSettings.MIN_DOUBLE_TAP_TIMEOUT_MS,
-                TapLockSettings.MAX_DOUBLE_TAP_TIMEOUT_MS
-            )
-        }
+        editClampedInt(
+            Keys.DOUBLE_TAP_TIMEOUT_MS,
+            timeoutMs,
+            TapLockSettings.MIN_DOUBLE_TAP_TIMEOUT_MS,
+            TapLockSettings.MAX_DOUBLE_TAP_TIMEOUT_MS
+        )
     }
 
     suspend fun setLockScreenWakeGraceMs(graceMs: Int) {
-        dataStore.edit {
-            it[Keys.LOCK_SCREEN_WAKE_GRACE_MS] = graceMs.coerceIn(
-                TapLockSettings.MIN_LOCK_SCREEN_WAKE_GRACE_MS,
-                TapLockSettings.MAX_LOCK_SCREEN_WAKE_GRACE_MS
-            )
-        }
+        editClampedInt(
+            Keys.LOCK_SCREEN_WAKE_GRACE_MS,
+            graceMs,
+            TapLockSettings.MIN_LOCK_SCREEN_WAKE_GRACE_MS,
+            TapLockSettings.MAX_LOCK_SCREEN_WAKE_GRACE_MS
+        )
     }
 
     suspend fun setSimulatePowerButton(enabled: Boolean) {
@@ -220,12 +236,12 @@ class TapLockPreferencesRepository(private val dataStore: DataStore<Preferences>
     }
 
     suspend fun setFadeToBlackDurationMs(durationMs: Int) {
-        dataStore.edit {
-            it[Keys.FADE_TO_BLACK_DURATION_MS] = durationMs.coerceIn(
-                TapLockSettings.MIN_FADE_TO_BLACK_DURATION_MS,
-                TapLockSettings.MAX_FADE_TO_BLACK_DURATION_MS
-            )
-        }
+        editClampedInt(
+            Keys.FADE_TO_BLACK_DURATION_MS,
+            durationMs,
+            TapLockSettings.MIN_FADE_TO_BLACK_DURATION_MS,
+            TapLockSettings.MAX_FADE_TO_BLACK_DURATION_MS
+        )
     }
 
     suspend fun setEnableFlickerProtection(enabled: Boolean) {
@@ -237,20 +253,20 @@ class TapLockPreferencesRepository(private val dataStore: DataStore<Preferences>
     }
 
     suspend fun setPreLockBlackoutDelayMs(delayMs: Int) {
-        dataStore.edit {
-            it[Keys.PRE_LOCK_BLACKOUT_DELAY_MS] = delayMs.coerceIn(
-                TapLockSettings.MIN_PRE_LOCK_DELAY_MS,
-                TapLockSettings.MAX_PRE_LOCK_DELAY_MS
-            )
-        }
+        editClampedInt(
+            Keys.PRE_LOCK_BLACKOUT_DELAY_MS,
+            delayMs,
+            TapLockSettings.MIN_PRE_LOCK_DELAY_MS,
+            TapLockSettings.MAX_PRE_LOCK_DELAY_MS
+        )
     }
 
     suspend fun setPostLockHoldDurationMs(durationMs: Int) {
-        dataStore.edit {
-            it[Keys.POST_LOCK_HOLD_DURATION_MS] = durationMs.coerceIn(
-                TapLockSettings.MIN_POST_LOCK_HOLD_MS,
-                TapLockSettings.MAX_POST_LOCK_HOLD_MS
-            )
-        }
+        editClampedInt(
+            Keys.POST_LOCK_HOLD_DURATION_MS,
+            durationMs,
+            TapLockSettings.MIN_POST_LOCK_HOLD_MS,
+            TapLockSettings.MAX_POST_LOCK_HOLD_MS
+        )
     }
 }
